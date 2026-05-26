@@ -1,11 +1,67 @@
 """GUI entry point — creates the Qt application and shows the main window."""
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 from pathlib import Path
 
 from . import config as cfgmod
+
+
+def _qt_plugin_root_candidates() -> list[Path]:
+    candidates: list[Path] = []
+
+    exe_dir = Path(sys.executable).resolve().parent
+    candidates.extend(
+        [
+            exe_dir / "PySide6" / "qt-plugins",
+            exe_dir / "PySide6" / "plugins",
+            exe_dir / "qt-plugins",
+            exe_dir / "plugins",
+        ]
+    )
+
+    for entry in sys.path:
+        if not entry:
+            continue
+        p = Path(entry)
+        candidates.extend(
+            [
+                p / "PySide6" / "qt-plugins",
+                p / "PySide6" / "plugins",
+            ]
+        )
+
+    # Keep order while removing duplicates.
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved not in seen:
+            unique.append(resolved)
+            seen.add(resolved)
+    return unique
+
+
+def _select_qt_plugin_root(candidates: list[Path]) -> Path | None:
+    for root in candidates:
+        platforms = root / "platforms"
+        if (platforms / "qwindows.dll").is_file() or (platforms / "qminimal.dll").is_file():
+            return root
+    return None
+
+
+def _configure_qt_plugin_paths() -> None:
+    if os.getenv("QT_QPA_PLATFORM_PLUGIN_PATH"):
+        return
+
+    root = _select_qt_plugin_root(_qt_plugin_root_candidates())
+    if root is None:
+        return
+
+    os.environ["QT_PLUGIN_PATH"] = str(root)
+    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(root / "platforms")
 
 
 def _show_startup_error(title: str, message: str) -> int:
@@ -22,6 +78,8 @@ def _show_startup_error(title: str, message: str) -> int:
 
 
 def run(argv: list[str] | None = None) -> int:
+    _configure_qt_plugin_paths()
+
     try:
         from PySide6.QtWidgets import QApplication
     except ImportError:

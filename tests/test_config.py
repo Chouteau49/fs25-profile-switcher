@@ -233,3 +233,35 @@ def test_steam_app_id_invalid_raises(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError):
         cfgmod.load(p)
+
+
+def test_load_uses_cwd_when_default_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        "games:\n"
+        "  fs25:\n"
+        "    mods_dir: /tmp/fs25\n"
+    )
+
+    missing_default = tmp_path / "missing-default" / "config.yaml"
+    monkeypatch.setattr(cfgmod, "DEFAULT_CONFIG_PATH", missing_default)
+    monkeypatch.chdir(tmp_path)
+
+    cfg = cfgmod.load()
+    assert cfg.default_game == "fs25"
+
+
+def test_load_missing_default_mentions_searched_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing_default = tmp_path / "missing-default" / "config.yaml"
+    monkeypatch.setattr(cfgmod, "DEFAULT_CONFIG_PATH", missing_default)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(FileNotFoundError) as exc_info:
+        cfgmod.load()
+
+    msg = str(exc_info.value)
+    assert "Searched:" in msg
+    assert str(missing_default) in msg
+    assert str(tmp_path / "config.yaml") in msg

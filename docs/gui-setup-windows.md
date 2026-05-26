@@ -137,16 +137,20 @@ python -m fsmods_gui
 
 ## C. Build du `.exe` (Nuitka)
 
-Une fois le venv dev installé :
+Build onefile recommandé (stable) :
 
 ```powershell
-.venv\Scripts\activate
+.venv313\Scripts\activate
 pip install -e .[build]
 .\packaging\build.ps1
 ```
 
 Le binaire `fsmods-gui.exe` atterrit dans `dist\`. Voir [packaging/build.ps1](../packaging/build.ps1)
 pour les options (clean, install, etc.).
+
+Les logs et rapports Nuitka sont générés hors dépôt dans :
+
+`%LOCALAPPDATA%\fs25-profile-switcher\build-logs`
 
 ---
 

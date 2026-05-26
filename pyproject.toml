@@ -1,6 +1,6 @@
 [project]
 name = "fs25-profile-switcher"
-version = "0.1.0"
+version = "0.1.1"
 description = "Desktop GUI to manage per-save mod profiles for Farming Simulator 25 / 22"
 requires-python = ">=3.10"
 license = { text = "MIT" }

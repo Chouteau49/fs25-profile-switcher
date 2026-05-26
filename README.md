@@ -88,13 +88,20 @@ Python ≥ 3.10.
 
 ## Build du `.exe` (Nuitka)
 
+Recommandé (build onefile stable) :
+
 ```powershell
-.venv\Scripts\activate
+.venv313\Scripts\activate
 pip install -e .[build]
 .\packaging\build.ps1
 ```
 
 Le binaire atterrit dans `dist\fsmods-gui.exe`. Voir [packaging/build.ps1](packaging/build.ps1).
+
+Notes de build :
+
+- Le script utilise automatiquement `.venv313` pour le mode onefile s'il existe (plus stable que Python 3.14 avec Nuitka 4.1.1).
+- Les logs de build sont écrits hors dépôt dans `%LOCALAPPDATA%\fs25-profile-switcher\build-logs`.
 
 ## Documentation
 

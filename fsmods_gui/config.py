@@ -1,6 +1,7 @@
 """Load and validate the config (multi-game)."""
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +20,33 @@ DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 EXAMPLE_CONFIG_PATH = REPO_ROOT / "config.example.yaml"
 
 SUPPORTED_GAMES = ("fs25", "fs22")
+
+
+def _default_config_candidates() -> list[Path]:
+    candidates: list[Path] = [DEFAULT_CONFIG_PATH, Path.cwd() / "config.yaml"]
+
+    # Persisted per-user config location for packaged app usage.
+    appdata = os.getenv("APPDATA")
+    if appdata:
+        candidates.append(Path(appdata) / "fsmods-gui" / "config.yaml")
+
+    # Keep order but remove duplicates.
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.expanduser()
+        if resolved not in seen:
+            unique.append(resolved)
+            seen.add(resolved)
+    return unique
+
+
+def _resolve_default_config_path() -> tuple[Path | None, list[Path]]:
+    searched = _default_config_candidates()
+    for candidate in searched:
+        if candidate.exists():
+            return candidate, searched
+    return None, searched
 
 
 @dataclass(frozen=True)
@@ -137,11 +165,20 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
 
 
 def load(path: Path | None = None) -> Config:
-    cfg_path = path or DEFAULT_CONFIG_PATH
-    if not cfg_path.exists():
+    searched_paths: list[Path] = []
+    if path is None:
+        cfg_path, searched_paths = _resolve_default_config_path()
+    else:
+        cfg_path = path
+
+    if cfg_path is None or not cfg_path.exists():
+        searched = ""
+        if searched_paths:
+            searched = "\nSearched:\n- " + "\n- ".join(str(p) for p in searched_paths)
         raise FileNotFoundError(
-            f"Missing {cfg_path.name}. Copy config.example.yaml to config.yaml "
-            f"and set games.<game>.mods_dir."
+            "Missing config.yaml. Copy config.example.yaml to config.yaml "
+            "(next to the exe, in the current directory, or under %APPDATA%/fsmods-gui) "
+            f"and set games.<game>.mods_dir.{searched}"
         )
     data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
     games = _parse_games(data.get("games"), cfg_path)
