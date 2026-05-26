@@ -1,0 +1,44 @@
+# Local config (contains user-specific paths)
+config.yaml
+
+# Build output
+dist/
+build/
+*.zip
+.tmp_game/
+*.manifest
+
+# Nuitka / packaging
+*.exe
+*.bin
+*.build/
+*.dist/
+*.onefile-build/
+packaging/build/
+packaging/dist/
+
+# Windows dev venv (when building the GUI side-by-side with WSL dev)
+.venv-win/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editors
+.vscode/*
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+
+# OS
+Thumbs.db

@@ -1,0 +1,34 @@
+# Copy this file to config.yaml and adjust paths to your setup.
+# config.yaml is gitignored (never committed — it contains your local paths).
+
+# Which game profile to target by default.
+default_game: fs25
+
+# One entry per game you play. Add or remove freely.
+# Common locations on Steam / Windows 11:
+#   FS25 (native):  C:/Users/<you>/Documents/My Games/FarmingSimulator2025/mods
+#   FS25 (WSL):     /mnt/c/Users/<you>/Documents/My Games/FarmingSimulator2025/mods
+#   FS22 (native):  C:/Users/<you>/Documents/My Games/FarmingSimulator2022/mods
+#   FS22 (WSL):     /mnt/c/Users/<you>/Documents/My Games/FarmingSimulator2022/mods
+games:
+  fs25:
+    # Required: where the game looks for mods.
+    mods_dir: "C:/Users/<you>/Documents/My Games/FarmingSimulator2025/mods"
+
+    # Required for the profile switcher: a central library that holds
+    # ALL your .zip mods + per-save profiles.
+    # Layout under this directory: mods/, profiles/, cache/.
+    library_dir: "D:/FS25-Library"
+
+    # Optional: Steam app id used by the "Activer & lancer" button.
+    # FS25 = 2300320, FS22 = 1248130.
+    steam_app_id: 2300320
+
+    # Optional: game install dir (Steam) — used for modDesc.xsd lookups.
+    # install_dir: "C:/Program Files (x86)/Steam/steamapps/common/Farming Simulator 25"
+
+  fs22:
+    mods_dir: "C:/Users/<you>/Documents/My Games/FarmingSimulator2022/mods"
+    library_dir: "D:/FS22-Library"
+    steam_app_id: 1248130
+    # install_dir: "C:/Program Files (x86)/Steam/steamapps/common/Farming Simulator 22"
