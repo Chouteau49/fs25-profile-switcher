@@ -1,0 +1,514 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-nuitka-onefile",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				".\\packaging\\build.ps1",
+				"-NoClean"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "build-nuitka-onefile-direct",
+			"type": "shell",
+			"command": "c:\\DEV\\fs25-profile-switcher\\.venv\\Scripts\\python.exe",
+			"args": [
+				"-m",
+				"nuitka",
+				"--onefile",
+				"--windows-console-mode=disable",
+				"--assume-yes-for-downloads",
+				"--enable-plugin=pyside6",
+				"--include-qt-plugins=platforms,styles,iconengines,imageformats,tls",
+				"--include-package=fsmods_gui",
+				"--include-package=psutil",
+				"--include-package=yaml",
+				"--include-package=PIL",
+				"--include-data-files=c:\\DEV\\fs25-profile-switcher\\.venv\\Lib\\site-packages\\PySide6\\opengl32sw.dll=opengl32sw.dll",
+				"--output-dir=dist_onefile",
+				"--output-filename=fsmods-gui.exe",
+				"--report=C:\\Users\\Julien\\AppData\\Local\\fs25-profile-switcher\\build-logs\\nuitka-direct-onefile.xml",
+				"packaging\\fsmods_gui_entry.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "build-nuitka-onefile-debug-console",
+			"type": "shell",
+			"command": "c:\\DEV\\fs25-profile-switcher\\.venv\\Scripts\\python.exe",
+			"args": [
+				"-m",
+				"nuitka",
+				"--onefile",
+				"--windows-console-mode=force",
+				"--assume-yes-for-downloads",
+				"--enable-plugin=pyside6",
+				"--include-qt-plugins=platforms,styles,iconengines,imageformats,tls",
+				"--include-package=fsmods_gui",
+				"--include-package=psutil",
+				"--include-package=yaml",
+				"--include-package=PIL",
+				"--include-data-files=c:\\DEV\\fs25-profile-switcher\\.venv\\Lib\\site-packages\\PySide6\\opengl32sw.dll=opengl32sw.dll",
+				"--output-dir=dist_debug",
+				"--output-filename=fsmods-gui-debug.exe",
+				"packaging\\fsmods_gui_entry.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "build-nuitka-onefile-nocompress",
+			"type": "shell",
+			"command": "c:\\DEV\\fs25-profile-switcher\\.venv\\Scripts\\python.exe",
+			"args": [
+				"-m",
+				"nuitka",
+				"--onefile",
+				"--onefile-no-compression",
+				"--windows-console-mode=disable",
+				"--assume-yes-for-downloads",
+				"--enable-plugin=pyside6",
+				"--include-qt-plugins=platforms,styles,iconengines,imageformats,tls",
+				"--include-package=fsmods_gui",
+				"--include-package=psutil",
+				"--include-package=yaml",
+				"--include-package=PIL",
+				"--include-data-files=c:\\DEV\\fs25-profile-switcher\\.venv\\Lib\\site-packages\\PySide6\\opengl32sw.dll=opengl32sw.dll",
+				"--output-dir=dist_onefile_nocompress",
+				"--output-filename=fsmods-gui.exe",
+				"--report=C:\\Users\\Julien\\AppData\\Local\\fs25-profile-switcher\\build-logs\\nuitka-onefile-nocompress.xml",
+				"packaging\\fsmods_gui_entry.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "run-onefile-diagnostics",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"set QT_DEBUG_PLUGINS=1 && set NUITKA_ONEFILE_VERBOSE=1 && dist\\fsmods-gui.exe 1>dist\\run_stdout.log 2>dist\\run_stderr.log & echo EXITCODE:%ERRORLEVEL% > dist\\run_exitcode.log"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "run-onefile-source-diagnostics",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"set QT_DEBUG_PLUGINS=1 && set NUITKA_ONEFILE_VERBOSE=1 && dist_onefile_nocompress\\fsmods-gui.exe 1>dist_onefile_nocompress\\run_stdout.log 2>dist_onefile_nocompress\\run_stderr.log & echo EXITCODE:%ERRORLEVEL% > dist_onefile_nocompress\\run_exitcode.log"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "build-nuitka-onefile-py313",
+			"type": "shell",
+			"command": ".venv313\\Scripts\\python.exe",
+			"args": [
+				"-m",
+				"nuitka",
+				"--onefile",
+				"--onefile-no-compression",
+				"--windows-console-mode=disable",
+				"--assume-yes-for-downloads",
+				"--enable-plugin=pyside6",
+				"--include-qt-plugins=platforms,styles,iconengines,imageformats,tls",
+				"--include-package=fsmods_gui",
+				"--include-package=psutil",
+				"--include-package=yaml",
+				"--include-package=PIL",
+				"--include-data-files=.venv313\\Lib\\site-packages\\PySide6\\opengl32sw.dll=opengl32sw.dll",
+				"--output-dir=dist_onefile_py313",
+				"--output-filename=fsmods-gui.exe",
+				"--report=C:\\Users\\Julien\\AppData\\Local\\fs25-profile-switcher\\build-logs\\nuitka-onefile-py313.xml",
+				"packaging\\fsmods_gui_entry.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "run-onefile-py313-diagnostics",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"set QT_DEBUG_PLUGINS=1 && set NUITKA_ONEFILE_VERBOSE=1 && dist_onefile_py313\\fsmods-gui.exe 1>dist_onefile_py313\\run_stdout.log 2>dist_onefile_py313\\run_stderr.log & echo EXITCODE:%ERRORLEVEL% > dist_onefile_py313\\run_exitcode.log"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "run-onefile-py313-verify",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"set QT_DEBUG_PLUGINS=1 && set NUITKA_ONEFILE_VERBOSE=1 && dist_onefile_py313\\fsmods-gui.exe 1>dist_onefile_py313\\verify_stdout.log 2>dist_onefile_py313\\verify_stderr.log & echo EXITCODE:%ERRORLEVEL% > dist_onefile_py313\\verify_exitcode.log"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "run-onefile-py313-finalcheck",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"set QT_DEBUG_PLUGINS=1 && set NUITKA_ONEFILE_VERBOSE=1 && dist_onefile_py313\\fsmods-gui.exe 1>dist_onefile_py313\\final_stdout.log 2>dist_onefile_py313\\final_stderr.log & echo EXITCODE:%ERRORLEVEL% > dist_onefile_py313\\final_exitcode.log"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-onefile-exists",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"if (Test-Path 'c:\\DEV\\fs25-profile-switcher\\dist_onefile_py313\\fsmods-gui.exe') { 'EXISTS' } else { 'MISSING' }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-onefile-exists-cmd",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"if exist c:\\DEV\\fs25-profile-switcher\\dist_onefile_py313\\fsmods-gui.exe (echo EXISTS) else (echo MISSING)"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-onefile-runs-process",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"start \"\" /b c:\\DEV\\fs25-profile-switcher\\dist_onefile_py313\\fsmods-gui.exe & timeout /t 4 /nobreak >nul & tasklist /FI \"IMAGENAME eq fsmods-gui.exe\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-onefile-runs-ps",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Start-Process -FilePath 'c:\\DEV\\fs25-profile-switcher\\dist_onefile_py313\\fsmods-gui.exe'; Start-Sleep -Seconds 4; (Get-Process -Name 'fsmods-gui' -ErrorAction SilentlyContinue | Measure-Object).Count"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "publish-py313-onefile",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"copy /Y c:\\DEV\\fs25-profile-switcher\\dist_onefile_py313\\fsmods-gui.exe c:\\DEV\\fs25-profile-switcher\\dist\\fsmods-gui.exe"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-final-exe",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Get-Item 'c:\\DEV\\fs25-profile-switcher\\dist\\fsmods-gui.exe' | Select-Object FullName,Length,LastWriteTime"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-gh-git",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"gh --version && git --version"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-winget",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"winget --version"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "install-gh-cli",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"winget install --id GitHub.cli -e --accept-package-agreements --accept-source-agreements"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "gh-auth-status",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"gh auth status"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "gh-auth-status-fullpath",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"\"C:\\Program Files\\GitHub CLI\\gh.exe\" auth status"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "gh-version-fullpath",
+			"type": "shell",
+			"command": "C:\\Program Files\\GitHub CLI\\gh.exe",
+			"args": [
+				"--version"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "gh-auth-status2",
+			"type": "shell",
+			"command": "C:\\Program Files\\GitHub CLI\\gh.exe",
+			"args": [
+				"auth",
+				"status"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "release-precheck",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\Program Files\\GitHub CLI\\gh.exe' auth status; & 'C:\\Program Files\\Git\\cmd\\git.exe' --version; & 'C:\\Program Files\\Git\\cmd\\git.exe' status --short; & 'C:\\Program Files\\Git\\cmd\\git.exe' branch --show-current"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "gh-auth-status-direct",
+			"type": "shell",
+			"command": "C:\\Program Files\\GitHub CLI\\gh.exe",
+			"args": [
+				"auth",
+				"status"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-direct",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"status",
+				"--short"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-branch-direct",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"branch",
+				"--show-current"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "release-tests",
+			"type": "shell",
+			"command": "C:\\DEV\\fs25-profile-switcher\\.venv313\\Scripts\\python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"-q"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-add-release-files",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"add",
+				".gitignore",
+				"README.md",
+				"docs/gui-setup-windows.md",
+				"fsmods_gui/config.py",
+				"fsmods_gui/main.py",
+				"packaging/build.ps1",
+				"pyproject.toml",
+				"tests/test_config.py",
+				"tests/test_main_qt_paths.py",
+				"CHANGELOG.md"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "release-tests-py314",
+			"type": "shell",
+			"command": "C:\\python314\\python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"-q"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-staged",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"status",
+				"--short"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-commit-release",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"commit",
+				"-m",
+				"release: v0.1.1 onefile fixes, docs and changelog"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-check-tag",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"tag",
+				"--list",
+				"v0.1.1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-create-tag",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"tag",
+				"v0.1.1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-push-main-tag",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"push",
+				"origin",
+				"main",
+				"v0.1.1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-release-asset",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Test-Path dist/fsmods-gui.exe"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "gh-release-create",
+			"type": "shell",
+			"command": "C:\\Program Files\\GitHub CLI\\gh.exe",
+			"args": [
+				"release",
+				"create",
+				"v0.1.1",
+				"dist/fsmods-gui.exe",
+				"--title",
+				"v0.1.1",
+				"--notes-file",
+				"CHANGELOG.md"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-final",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"status",
+				"--short"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-add-vscode-tasks",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"add",
+				".vscode/tasks.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-before-vscode-commit",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"status",
+				"--short"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-add-vscode-tasks-again",
+			"type": "shell",
+			"command": "C:\\Program Files\\Git\\cmd\\git.exe",
+			"args": [
+				"add",
+				".vscode/tasks.json"
+			],
+			"isBackground": false
+		}
+	]
+}
