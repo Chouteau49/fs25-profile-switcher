@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.2 - 2026-05-27
+
+### Added
+
+- Added post-session detection for mods updated in-game (ModHub) by comparing game zips against library zips.
+- Added dedicated sync dialog actions to import updated mods back into the library after game exit.
+
+### Changed
+
+- Updated README feature and workflow descriptions to include end-of-session handling of in-game mod updates.
+
+### Build / Release
+
+- Project version bumped from `0.1.1` to `0.1.2` in `pyproject.toml`.
+- Updated packaged executable metadata version in `packaging/build.ps1` to `0.1.2`.
+
 ## 0.1.1 - 2026-05-26
 
 ### Added

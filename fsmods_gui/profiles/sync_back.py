@@ -11,6 +11,7 @@ produces an actionable diff. It also exposes apply helpers to:
 """
 from __future__ import annotations
 
+import hashlib
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,10 +34,16 @@ class SyncDiff:
     untracked_in_library: list[str] = field(default_factory=list)
     """Zips in the game folder that the library doesn't know about yet."""
 
+    updated_in_game: list[str] = field(default_factory=list)
+    """Zips present in profile+library+game but changed in the game folder."""
+
     @property
     def has_changes(self) -> bool:
         return bool(
-            self.added_in_game or self.removed_in_game or self.untracked_in_library
+            self.added_in_game
+            or self.removed_in_game
+            or self.untracked_in_library
+            or self.updated_in_game
         )
 
 
@@ -48,6 +55,24 @@ def _list_game_zips(mods_dir: Path) -> list[str]:
         for p in mods_dir.iterdir()
         if p.is_file() and p.suffix.lower() == ".zip"
     )
+
+
+def _sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _is_updated_in_game(filename: str, game_profile: GameProfile, catalog: Catalog) -> bool:
+    if game_profile.library_mods_dir is None:
+        return False
+    game_zip = game_profile.mods_dir / filename
+    library_zip = game_profile.library_mods_dir / filename
+    if not game_zip.is_file() or not library_zip.is_file():
+        return False
+    return _sha256(game_zip) != _sha256(library_zip)
 
 
 def compute_diff(
@@ -62,6 +87,12 @@ def compute_diff(
     diff.added_in_game = sorted(game_zips - profile_zips)
     diff.removed_in_game = sorted(profile_zips - game_zips)
     diff.untracked_in_library = sorted(game_zips - library_zips)
+    common_tracked = game_zips & profile_zips & library_zips
+    diff.updated_in_game = sorted(
+        filename
+        for filename in common_tracked
+        if _is_updated_in_game(filename, game_profile, catalog)
+    )
     return diff
 
 

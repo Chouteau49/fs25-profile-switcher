@@ -30,7 +30,7 @@ sinon elle retombe automatiquement sur une copie classique.
 - **Choix de carte** : la carte associée au profil est mise en avant (icône + nom).
 - **Activation instantanée** : hardlinks NTFS, fallback automatique sur copie.
 - **Lancement Steam** : bouton « Activer & lancer » qui démarre le jeu via `steam://rungameid/<id>`.
-- **Sync au retour de partie** : à la fermeture de FS25, l'app détecte les mods ajoutés (téléchargés via ModHub en jeu) ou supprimés et te demande comment ranger.
+- **Sync au retour de partie** : à la fermeture de FS25, l'app détecte les mods ajoutés, supprimés, et les mods mis à jour en jeu (ModHub), puis propose l'action adaptée.
 - **Détails des mods** : aperçu de la fiche modDesc (icône, version, description, multijoueur).
 
 ## Installation joueur (binaire `.exe`)
@@ -67,7 +67,7 @@ games:
 3. **Crée un profil** (bouton ➕). Choisis la carte, double-clique les mods à inclure.
 4. Clique **▶ Activer & lancer**. Le dossier mods du jeu est reconstruit avec uniquement les mods du profil, et FS25 démarre via Steam.
 5. **Joue**.
-6. **Quitte FS25**. Si tu as téléchargé / supprimé des mods en jeu, une fenêtre te propose de les importer dans la bibliothèque + le profil, ou de les retirer.
+6. **Quitte FS25**. Si tu as téléchargé, supprimé, ou mis à jour des mods en jeu, une fenêtre te propose d'importer les nouveautés, de récupérer les mises à jour dans la bibliothèque, et d'ajuster le profil.
 
 ## Installation dev (depuis les sources)
 

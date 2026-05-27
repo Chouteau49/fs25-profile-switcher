@@ -98,8 +98,8 @@ $nuitkaArgs = @(
     "--output-filename=fsmods-gui.exe",
     "--company-name=Julien Chouteau",
     "--product-name=FS25 Profile Switcher",
-    "--file-version=0.1.1",
-    "--product-version=0.1.1",
+    "--file-version=0.1.2",
+    "--product-version=0.1.2",
     "--file-description=Manage per-save mod profiles for Farming Simulator 25"
 )
 

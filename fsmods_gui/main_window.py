@@ -41,6 +41,7 @@ from .widgets.sync_dialog import (
     ADD_LIB_ONLY,
     REMOVE_DROP,
     SyncDialog,
+    UPDATE_IGNORE,
 )
 from .workers import ActivateWorker, GameWatcher, ScanWorker, make_worker_thread
 
@@ -391,13 +392,20 @@ class MainWindow(QMainWindow):
         dlg = SyncDialog(diff, profile.name, self)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
-        self._apply_sync_choices(profile, diff, dlg.added_actions(), dlg.removed_actions())
+        self._apply_sync_choices(
+            profile,
+            diff,
+            dlg.added_actions(),
+            dlg.updated_actions(),
+            dlg.removed_actions(),
+        )
 
     def _apply_sync_choices(
         self,
         profile,  # Profile
         diff,
         added: dict[str, str],
+        updated: dict[str, str],
         removed: dict[str, str],
     ) -> None:
         changed = False
@@ -415,6 +423,13 @@ class MainWindow(QMainWindow):
                     changed = True
             elif action == ADD_LIB_ONLY:
                 pass
+        for fname, action in updated.items():
+            if action == UPDATE_IGNORE:
+                continue
+            try:
+                import_into_library(fname, self.state.game, self.state.catalog)
+            except (FileNotFoundError, ValueError) as exc:
+                errors.append(f"{fname}: {exc}")
         for fname, action in removed.items():
             if action == REMOVE_DROP and remove_from_profile(profile, fname):
                 changed = True

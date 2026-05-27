@@ -25,6 +25,9 @@ ADD_IGNORE = "ignore"
 ADD_LIB_AND_PROFILE = "library+profile"
 ADD_LIB_ONLY = "library"
 
+UPDATE_IMPORT = "import"
+UPDATE_IGNORE = "ignore"
+
 REMOVE_KEEP = "keep"
 REMOVE_DROP = "drop"
 
@@ -42,6 +45,7 @@ class SyncDialog(QDialog):
         self.setWindowTitle("Synchronisation de fin de partie")
         self.setMinimumSize(640, 480)
         self._added_choices: dict[str, QComboBox] = {}
+        self._updated_choices: dict[str, QComboBox] = {}
         self._removed_choices: dict[str, QComboBox] = {}
 
         intro = QLabel(
@@ -54,6 +58,7 @@ class SyncDialog(QDialog):
         scroll_content = QWidget()
         body = QVBoxLayout(scroll_content)
         body.addWidget(self._added_group(diff))
+        body.addWidget(self._updated_group(diff))
         body.addWidget(self._removed_group(diff))
         body.addStretch(1)
 
@@ -96,6 +101,28 @@ class SyncDialog(QDialog):
             layout.addWidget(wrap)
         return box
 
+    def _updated_group(self, diff: SyncDiff) -> QGroupBox:
+        box = QGroupBox(
+            f"Mods mis a jour dans le jeu ({len(diff.updated_in_game)})", self
+        )
+        layout = QVBoxLayout(box)
+        if not diff.updated_in_game:
+            layout.addWidget(QLabel("Aucun mod mis a jour detecte."))
+            return box
+        for filename in diff.updated_in_game:
+            row = QHBoxLayout()
+            row.addWidget(QLabel(filename), 1)
+            combo = QComboBox()
+            combo.addItem("Recuperer la mise a jour dans la bibliotheque", UPDATE_IMPORT)
+            combo.addItem("Ignorer", UPDATE_IGNORE)
+            combo.setCurrentIndex(0)
+            self._updated_choices[filename] = combo
+            row.addWidget(combo)
+            wrap = QWidget()
+            wrap.setLayout(row)
+            layout.addWidget(wrap)
+        return box
+
     def _removed_group(self, diff: SyncDiff) -> QGroupBox:
         box = QGroupBox(
             f"Mods retirés du dossier du jeu ({len(diff.removed_in_game)})", self
@@ -123,3 +150,6 @@ class SyncDialog(QDialog):
 
     def removed_actions(self) -> dict[str, str]:
         return {fname: cb.currentData() for fname, cb in self._removed_choices.items()}
+
+    def updated_actions(self) -> dict[str, str]:
+        return {fname: cb.currentData() for fname, cb in self._updated_choices.items()}

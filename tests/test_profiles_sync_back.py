@@ -57,6 +57,7 @@ def test_compute_diff_detects_added_removed_and_untracked(tmp_path: Path) -> Non
     assert diff.added_in_game == ["NEW.zip"]
     assert diff.removed_in_game == ["B.zip"]
     assert diff.untracked_in_library == ["NEW.zip"]
+    assert diff.updated_in_game == []
     assert diff.has_changes
 
 
@@ -70,6 +71,27 @@ def test_compute_diff_no_changes(tmp_path: Path) -> None:
     profile = Profile(name="X", mods=["A.zip"])
     diff = compute_diff(profile, gp, catalog)
     assert not diff.has_changes
+
+
+def test_compute_diff_detects_updated_mod(tmp_path: Path) -> None:
+    gp = _gp(tmp_path)
+    _make_zip(gp.mods_dir / "A.zip", moddesc=MODDESC.replace("1.0.0.0", "1.2.0.0"))
+
+    lib_a = gp.library_mods_dir / "A.zip"
+    _make_zip(lib_a, moddesc=MODDESC.replace("1.0.0.0", "1.0.0.0"))
+
+    catalog = Catalog(
+        mods_dir=gp.library_mods_dir,
+        entries={"A.zip": CatalogEntry(filename="A.zip", title="A", version="1")},
+    )
+    profile = Profile(name="X", mods=["A.zip"])
+
+    diff = compute_diff(profile, gp, catalog)
+    assert diff.added_in_game == []
+    assert diff.removed_in_game == []
+    assert diff.untracked_in_library == []
+    assert diff.updated_in_game == ["A.zip"]
+    assert diff.has_changes
 
 
 def test_import_into_library_copies_and_updates_catalog(tmp_path: Path) -> None:
