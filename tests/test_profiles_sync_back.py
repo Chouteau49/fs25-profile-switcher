@@ -13,6 +13,7 @@ from fsmods_gui.profiles.sync_back import (
     compute_diff,
     import_into_library,
     remove_from_profile,
+    snapshot_hashes,
 )
 
 MODDESC = """<?xml version="1.0" encoding="utf-8"?>
@@ -90,6 +91,31 @@ def test_compute_diff_detects_updated_mod(tmp_path: Path) -> None:
     assert diff.added_in_game == []
     assert diff.removed_in_game == []
     assert diff.untracked_in_library == []
+    assert diff.updated_in_game == ["A.zip"]
+    assert diff.has_changes
+
+
+def test_compute_diff_detects_updated_mod_with_snapshot_even_if_library_matches(tmp_path: Path) -> None:
+    gp = _gp(tmp_path)
+
+    # Initial state before game launch.
+    _make_zip(gp.mods_dir / "A.zip", moddesc=MODDESC.replace("1.0.0.0", "1.0.0.0"))
+    _make_zip(gp.library_mods_dir / "A.zip", moddesc=MODDESC.replace("1.0.0.0", "1.0.0.0"))
+
+    profile = Profile(name="X", mods=["A.zip"])
+    baseline = snapshot_hashes(gp.mods_dir, profile.all_mod_filenames())
+
+    # Simulate in-game update with hardlink-like final state:
+    # game and library both end up with the new content.
+    _make_zip(gp.mods_dir / "A.zip", moddesc=MODDESC.replace("1.0.0.0", "1.3.0.0"))
+    _make_zip(gp.library_mods_dir / "A.zip", moddesc=MODDESC.replace("1.0.0.0", "1.3.0.0"))
+
+    catalog = Catalog(
+        mods_dir=gp.library_mods_dir,
+        entries={"A.zip": CatalogEntry(filename="A.zip", title="A", version="1")},
+    )
+
+    diff = compute_diff(profile, gp, catalog, baseline_hashes=baseline)
     assert diff.updated_in_game == ["A.zip"]
     assert diff.has_changes
 

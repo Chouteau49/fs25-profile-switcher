@@ -541,6 +541,21 @@
 				".vscode/tasks.json"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "build-nuitka-debug",
+			"type": "shell",
+			"command": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				".\\packaging\\build.ps1",
+				"-NoClean",
+				"-DebugConsole"
+			],
+			"isBackground": false
 		}
 	]
 }

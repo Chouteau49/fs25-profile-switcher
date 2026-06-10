@@ -9,6 +9,7 @@
 #   -Install    Installe / met à jour les dépendances (incl. nuitka) avant de compiler
 #   -Standalone Crée un dossier `fsmods-gui.dist/` (lancement plus rapide) au lieu d'un
 #               .exe onefile autonome. Onefile par défaut.
+#   -DebugConsole Active la console Windows pour voir les logs print()
 #
 # Pré-requis : .venv doit exister (python -m venv .venv) et contenir les deps
 #              du projet + nuitka. Pour onefile, .venv313 est recommandé.
@@ -19,7 +20,8 @@ param(
     [switch]$NoClean = $false,
     [switch]$Install = $false,
     [switch]$Standalone = $false,
-    [switch]$UsePy313 = $false
+    [switch]$UsePy313 = $false,
+    [switch]$DebugConsole = $false
 )
 
 Set-StrictMode -Version Latest
@@ -40,12 +42,21 @@ $python = Join-Path $venv "Scripts\python.exe"
 $entry = Join-Path $PSScriptRoot "fsmods_gui_entry.py"
 $outDir = Join-Path $root "dist"
 $pysideDir = Join-Path $venv "Lib\site-packages\PySide6"
+$appIcon = Join-Path $PSScriptRoot "assets\fsmods-gui.ico"
 $logDir = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "fs25-profile-switcher\build-logs"
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $buildLog = Join-Path $logDir "nuitka-build-$stamp.log"
 $reportXml = Join-Path $logDir "nuitka-report-$stamp.xml"
 
 Push-Location $root
+
+# ── Nettoyage des processus en cours ─────────────────────────────────────────
+$processes = Get-Process -Name "fsmods-gui" -ErrorAction SilentlyContinue
+if ($processes) {
+    Write-Host "Fermeture des instances de fsmods-gui.exe en cours…" -ForegroundColor Yellow
+    $processes | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}
 
 # ── Vérification du venv ─────────────────────────────────────────────────────
 if (-not (Test-Path $python)) {
@@ -67,6 +78,14 @@ if ($LASTEXITCODE -ne 0) {
     & $pip install nuitka
 }
 
+# ── Synchroniser le package editable avec la version actuelle ─────────────────
+Write-Host "Synchronisation du package editable avec la version du code source…" -ForegroundColor Cyan
+& $pip install -e $root --quiet
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Erreur lors de la réinstallation du package editable." -ForegroundColor Red
+    exit 1
+}
+
 # ── Nettoyage ─────────────────────────────────────────────────────────────────
 $doClean = $Clean -and (-not $NoClean)
 if ($doClean) {
@@ -83,10 +102,11 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 # ── Arguments Nuitka ─────────────────────────────────────────────────────────
+$consoleMode = if ($DebugConsole) { "force" } else { "disable" }
 $nuitkaArgs = @(
     "-m", "nuitka",
     "--assume-yes-for-downloads",          # télécharge ccache / dépendant-walker silencieusement
-    "--windows-console-mode=disable",      # pas de console au lancement
+    "--windows-console-mode=$consoleMode", # console pour debug ou pas
     "--enable-plugin=pyside6",
     "--include-qt-plugins=platforms,styles,iconengines,imageformats,tls",
     "--include-package=fsmods_gui",
@@ -98,8 +118,16 @@ $nuitkaArgs = @(
     "--output-filename=fsmods-gui.exe",
     "--company-name=Julien Chouteau",
     "--product-name=FS25 Profile Switcher",
-    "--file-version=0.1.2",
-    "--product-version=0.1.2",
+    # Détecte dynamiquement la version du paquet (installé en editable) via Python.
+    # Préfère `fsmods_gui.__version__` si disponible.
+    $(
+        $ver = & $python -c "import importlib; import fsmods_gui as pkg; print(getattr(pkg, '__version__', '0.0.0'))"; 
+        "--file-version=$ver"
+    ),
+    $(
+        $ver = & $python -c "import importlib; import fsmods_gui as pkg; print(getattr(pkg, '__version__', '0.0.0'))"; 
+        "--product-version=$ver"
+    ),
     "--file-description=Manage per-save mod profiles for Farming Simulator 25"
 )
 
@@ -107,6 +135,11 @@ $openglSoftware = Join-Path $pysideDir "opengl32sw.dll"
 if (Test-Path $openglSoftware) {
     # Fallback software OpenGL used by Qt on systems without compatible GPU drivers.
     $nuitkaArgs += "--include-data-files=$openglSoftware=opengl32sw.dll"
+}
+
+if (Test-Path $appIcon) {
+    $nuitkaArgs += "--include-data-files=$appIcon=fsmods-gui.ico"
+    $nuitkaArgs += "--windows-icon-from-ico=$appIcon"
 }
 
 if ($Standalone) {

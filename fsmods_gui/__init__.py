@@ -13,3 +13,6 @@ __all__ = ["run"]
 def run() -> int:  # pragma: no cover - thin re-export
     from .main import run as _run
     return _run()
+
+# Package version. Keep in sync with pyproject.toml.
+__version__ = "0.1.5"

@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.5] - 2026-06-10
+
+### Added
+
+- Added application icon (fsmods-gui.ico) with 7 resolutions (16-256px).
+- Added visible app version in window title and status bar.
+- Added launch.bat for quick testing.
+- Added -DebugConsole parameter to build.ps1 for troubleshooting.
+
+### Fixed
+
+- **Critical fix:** Catalog (index.json) is now properly saved after importing updated mods from game. Previously, updated .zip files were copied to library but the catalog wasn't persisted, causing the same updates to be proposed again on next launch.
+- Fixed end-of-session update detection when mods are activated via hardlinks by using a pre-launch hash snapshot and post-game comparison.
+- Fixed editable package version sync in build script to ensure __version__ matches source code.
+
+### Changed
+
+- Build script now auto-reinstalls editable package before Nuitka compilation.
+- Build script now kills running fsmods-gui processes before compilation to avoid file locks.
+
+### Build / Release
+
+- Project version bumped from `0.1.3` to `0.1.5` in `pyproject.toml` and `fsmods_gui.__version__`.
+
 ## 0.1.2 - 2026-05-27
 
 ### Added

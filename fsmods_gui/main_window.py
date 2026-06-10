@@ -32,6 +32,7 @@ from .profiles.sync_back import (
     compute_diff,
     import_into_library,
     remove_from_profile,
+    snapshot_hashes,
 )
 from .state import AppState
 from .widgets.profile_editor import ProfileEditor
@@ -44,13 +45,14 @@ from .widgets.sync_dialog import (
     UPDATE_IGNORE,
 )
 from .workers import ActivateWorker, GameWatcher, ScanWorker, make_worker_thread
+from . import __version__
 
 
 class MainWindow(QMainWindow):
     def __init__(self, state: AppState) -> None:
         super().__init__()
         self.state = state
-        self.setWindowTitle(f"FS Profile Switcher — {state.game_key}")
+        self.setWindowTitle(f"FS Profile Switcher v{__version__} — {state.game_key}")
         self.resize(1200, 720)
 
         # ---- left: profile list + buttons
@@ -66,6 +68,11 @@ class MainWindow(QMainWindow):
 
         left_panel = QWidget(self)
         left_layout = QVBoxLayout(left_panel)
+        self._left_version_label = QLabel(f"FS Profile Switcher v{__version__}", left_panel)
+        self._left_version_label.setStyleSheet(
+            "QLabel { font-weight: 700; color: #2b6cb0; padding-bottom: 4px; }"
+        )
+        left_layout.addWidget(self._left_version_label)
         left_layout.addWidget(QLabel("Profils", left_panel))
         left_layout.addWidget(self.profile_list, 1)
         btn_row = QHBoxLayout()
@@ -91,6 +98,16 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         header = QHBoxLayout()
         header.addStretch(1)
+        self._header_version_label = QLabel(f"Version {__version__}", self)
+        self._header_version_label.setStyleSheet(
+            "QLabel {"
+            "padding: 4px 10px;"
+            "border: 1px solid #888;"
+            "border-radius: 10px;"
+            "font-weight: 600;"
+            "}"
+        )
+        header.addWidget(self._header_version_label)
         header.addWidget(self.activate_btn)
         right_layout.addLayout(header)
         right_layout.addWidget(self.editor, 1)
@@ -103,12 +120,18 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self.setStatusBar(QStatusBar(self))
+        self._version_label = QLabel(f"Version {__version__}", self)
+        self.statusBar().addPermanentWidget(self._version_label)
 
         toolbar = QToolBar("Principal", self)
         self.addToolBar(toolbar)
         rescan = QAction("🔄 Rescanner la bibliothèque", self)
         rescan.triggered.connect(self._on_rescan)
         toolbar.addAction(rescan)
+        toolbar.addSeparator()
+        version_action = QAction(f"Version {__version__}", self)
+        version_action.setEnabled(False)
+        toolbar.addAction(version_action)
 
         # ---- workers (kept as attributes so they survive the call)
         self._scan_thread: QThread | None = None
@@ -121,6 +144,7 @@ class MainWindow(QMainWindow):
         self._watcher.started.connect(self._on_game_started)
         self._watcher.stopped.connect(self._on_game_stopped)
         self._watching_for_profile: str | None = None
+        self._watching_hashes: dict[str, str] = {}
 
         # ---- initial load
         self._refresh_profiles_ui()
@@ -359,6 +383,10 @@ class MainWindow(QMainWindow):
             )
         if launched and self.state.current_profile is not None:
             self._watching_for_profile = self.state.current_profile.slug
+            self._watching_hashes = snapshot_hashes(
+                self.state.game.mods_dir,
+                self.state.current_profile.all_mod_filenames(),
+            )
             self._watcher.start()
 
     def _on_activate_failed(self, message: str) -> None:
@@ -384,8 +412,15 @@ class MainWindow(QMainWindow):
         )
         self._watching_for_profile = None
         if profile is None:
+            self._watching_hashes = {}
             return
-        diff = compute_diff(profile, self.state.game, self.state.catalog)
+        diff = compute_diff(
+            profile,
+            self.state.game,
+            self.state.catalog,
+            baseline_hashes=self._watching_hashes,
+        )
+        self._watching_hashes = {}
         if not diff.has_changes:
             self._status("Aucune différence détectée après la partie.")
             return
@@ -433,6 +468,17 @@ class MainWindow(QMainWindow):
         for fname, action in removed.items():
             if action == REMOVE_DROP and remove_from_profile(profile, fname):
                 changed = True
+        
+        # Save catalog if any mods were imported (added or updated)
+        any_imported = any(
+            action != ADD_IGNORE for action in added.values()
+        ) or any(
+            action != UPDATE_IGNORE for action in updated.values()
+        )
+        if any_imported and self.state.game.library_cache_dir:
+            cache_path = self.state.game.library_cache_dir / "index.json"
+            self.state.catalog.save_cache(cache_path)
+        
         if changed:
             profile.save()
             self.editor.set_profile(profile)

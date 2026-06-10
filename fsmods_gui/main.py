@@ -7,6 +7,7 @@ import traceback
 from pathlib import Path
 
 from . import config as cfgmod
+from . import __version__
 
 
 def _qt_plugin_root_candidates() -> list[Path]:
@@ -77,6 +78,43 @@ def _show_startup_error(title: str, message: str) -> int:
     return 2
 
 
+def _app_icon_candidates() -> list[Path]:
+    exe_dir = Path(sys.executable).resolve().parent
+    this_dir = Path(__file__).resolve().parent
+    root_dir = this_dir.parent
+
+    candidates = [
+        exe_dir / "fsmods-gui.ico",
+        this_dir / "assets" / "fsmods-gui.ico",
+        root_dir / "packaging" / "assets" / "fsmods-gui.ico",
+    ]
+
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved not in seen:
+            unique.append(resolved)
+            seen.add(resolved)
+    return unique
+
+
+def _configure_app_icon(app: object) -> None:
+    try:
+        from PySide6.QtGui import QIcon
+    except ImportError:
+        return
+
+    for icon_path in _app_icon_candidates():
+        if not icon_path.is_file():
+            continue
+        icon = QIcon(str(icon_path))
+        if icon.isNull():
+            continue
+        app.setWindowIcon(icon)
+        return
+
+
 def run(argv: list[str] | None = None) -> int:
     _configure_qt_plugin_paths()
 
@@ -115,10 +153,12 @@ def run(argv: list[str] | None = None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName("fs25-profile-switcher")
     app.setOrganizationName("fs25-profile-switcher")
+    _configure_app_icon(app)
 
     try:
         state = AppState(cfg=cfg, game_key=game_key)
         window = MainWindow(state)
+        window.setWindowIcon(app.windowIcon())
     except Exception:  # noqa: BLE001
         return _show_startup_error("Erreur au démarrage", traceback.format_exc())
 

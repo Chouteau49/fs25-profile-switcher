@@ -65,6 +65,20 @@ def _sha256(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def snapshot_hashes(mods_dir: Path, filenames: list[str]) -> dict[str, str]:
+    """Return SHA-256 hashes for the subset of zip files currently present."""
+    hashes: dict[str, str] = {}
+    for filename in filenames:
+        p = mods_dir / filename
+        if not p.is_file():
+            continue
+        try:
+            hashes[filename] = _sha256(p)
+        except OSError:
+            continue
+    return hashes
+
+
 def _is_updated_in_game(filename: str, game_profile: GameProfile, catalog: Catalog) -> bool:
     if game_profile.library_mods_dir is None:
         return False
@@ -76,7 +90,10 @@ def _is_updated_in_game(filename: str, game_profile: GameProfile, catalog: Catal
 
 
 def compute_diff(
-    profile: Profile, game_profile: GameProfile, catalog: Catalog
+    profile: Profile,
+    game_profile: GameProfile,
+    catalog: Catalog,
+    baseline_hashes: dict[str, str] | None = None,
 ) -> SyncDiff:
     """Compare the live game folder to ``profile`` and ``catalog``."""
     game_zips = set(_list_game_zips(game_profile.mods_dir))
@@ -87,12 +104,33 @@ def compute_diff(
     diff.added_in_game = sorted(game_zips - profile_zips)
     diff.removed_in_game = sorted(profile_zips - game_zips)
     diff.untracked_in_library = sorted(game_zips - library_zips)
+
+    # Primary strategy: compare with the "pre-game" snapshot.
+    updated_from_snapshot: set[str] = set()
+    if baseline_hashes:
+        tracked_now = game_zips & profile_zips
+        for filename in sorted(tracked_now):
+            before = baseline_hashes.get(filename)
+            if before is None:
+                continue
+            game_zip = game_profile.mods_dir / filename
+            if not game_zip.is_file():
+                continue
+            try:
+                current_hash = _sha256(game_zip)
+                if current_hash != before:
+                    updated_from_snapshot.add(filename)
+            except OSError:
+                continue
+
+    # Fallback: compare game and library files with same filename.
     common_tracked = game_zips & profile_zips & library_zips
-    diff.updated_in_game = sorted(
+    updated_from_library = {
         filename
         for filename in common_tracked
         if _is_updated_in_game(filename, game_profile, catalog)
-    )
+    }
+    diff.updated_in_game = sorted(updated_from_snapshot | updated_from_library)
     return diff
 
 
