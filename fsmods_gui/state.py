@@ -141,3 +141,24 @@ class AppState:
         if self.current_profile is None or self.current_profile.path is None:
             return None
         return self.current_profile.save()
+
+    # -------------------------------------------------------- config backup
+
+    def backup_config(self) -> Path | None:
+        """Mirror profiles + collections to ``config_backup_dir`` if configured.
+
+        No-op (returns None) when the game has no backup folder set. Safe to call
+        after any profile/collection change — the mirror is a full overwrite.
+        """
+        game = self.game
+        backup_dir = game.config_backup_dir
+        if backup_dir is None:
+            return None
+        from .profiles.config_backup import mirror_config
+
+        try:
+            return mirror_config(
+                game.library_profiles_dir, game.library_collections_dir, backup_dir
+            )
+        except OSError:
+            return None

@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, QThread, QSize
 from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QFileDialog,
     QFileIconProvider,
     QHBoxLayout,
     QInputDialog,
@@ -144,6 +145,13 @@ class MainWindow(QMainWindow):
         audit_action.triggered.connect(self._on_audit_savegame)
         toolbar.addAction(audit_action)
         toolbar.addSeparator()
+        export_action = QAction("📤 Exporter config", self)
+        export_action.triggered.connect(self._on_export_config)
+        toolbar.addAction(export_action)
+        import_action = QAction("📥 Importer config", self)
+        import_action.triggered.connect(self._on_import_config)
+        toolbar.addAction(import_action)
+        toolbar.addSeparator()
         version_action = QAction(f"Version {__version__}", self)
         version_action.setEnabled(False)
         toolbar.addAction(version_action)
@@ -229,6 +237,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Création impossible", str(exc))
             return
         self._refresh_profiles_ui()
+        self.state.backup_config()
 
     def _on_duplicate_profile(self) -> None:
         src = self.state.current_profile
@@ -251,6 +260,7 @@ class MainWindow(QMainWindow):
         new.description = src.description
         new.save()
         self._refresh_profiles_ui()
+        self.state.backup_config()
 
     def _on_delete_profile(self) -> None:
         prof = self.state.current_profile
@@ -265,6 +275,7 @@ class MainWindow(QMainWindow):
             return
         self.state.delete_profile(prof)
         self._refresh_profiles_ui()
+        self.state.backup_config()
 
     def _on_profile_changed(self) -> None:
         path = self.state.save_current()
@@ -275,6 +286,7 @@ class MainWindow(QMainWindow):
             row = self.profile_list.currentRow()
             if row >= 0:
                 self.profile_list.item(row).setText(self.state.current_profile.name)
+        self.state.backup_config()
         self._status(f"Profil enregistré : {path.name}")
 
     # ============================================================= scan
@@ -349,6 +361,102 @@ class MainWindow(QMainWindow):
         # Collections may have been added/removed/edited — re-sync the editor.
         self.editor.set_collections(self.state.collections)
         self.editor.set_profile(self.state.current_profile)
+        self.state.backup_config()
+
+    # =================================================== config backup (#4)
+
+    def _on_export_config(self) -> None:
+        try:
+            game = self.state.game
+        except KeyError:
+            return
+        if game.library_profiles_dir is None:
+            QMessageBox.warning(self, "Export", "Bibliothèque non configurée.")
+            return
+        from datetime import date
+
+        default_name = f"{self.state.game_key}-config-{date.today().isoformat()}.zip"
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "Exporter la config", default_name, "Archives ZIP (*.zip)"
+        )
+        if not dest:
+            return
+        from .profiles.config_backup import export_config
+
+        try:
+            path = export_config(
+                game.library_profiles_dir, game.library_collections_dir, Path(dest)
+            )
+        except OSError as exc:
+            QMessageBox.critical(self, "Export échoué", str(exc))
+            return
+        self._status(f"Config exportée : {path.name}")
+        QMessageBox.information(
+            self,
+            "Export terminé",
+            f"Profils + collections exportés vers :\n{path}",
+        )
+
+    def _on_import_config(self) -> None:
+        try:
+            game = self.state.game
+        except KeyError:
+            return
+        if game.library_profiles_dir is None or game.library_collections_dir is None:
+            QMessageBox.warning(self, "Import", "Bibliothèque non configurée.")
+            return
+        src, _ = QFileDialog.getOpenFileName(
+            self, "Importer une config", "", "Archives ZIP (*.zip)"
+        )
+        if not src:
+            return
+        from .profiles.config_backup import MODE_MERGE, MODE_REPLACE, import_config
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Importer la config")
+        box.setText(
+            "Comment importer les profils et collections de cette archive ?"
+        )
+        box.setInformativeText(
+            "Fusionner : ajoute/écrase par nom, garde les autres.\n"
+            "Remplacer : efface d'abord les profils/collections actuels."
+        )
+        merge_btn = box.addButton("Fusionner", QMessageBox.ButtonRole.AcceptRole)
+        replace_btn = box.addButton("Remplacer", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is merge_btn:
+            mode = MODE_MERGE
+        elif clicked is replace_btn:
+            mode = MODE_REPLACE
+        else:
+            return
+
+        try:
+            result = import_config(
+                Path(src),
+                game.library_profiles_dir,
+                game.library_collections_dir,
+                mode=mode,
+            )
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Import échoué", str(exc))
+            return
+
+        # Reload everything from disk and refresh the UI.
+        self.state.refresh_collections()
+        self.editor.set_collections(self.state.collections)
+        self.state.refresh_profiles()
+        self._refresh_profiles_ui()
+        self.state.backup_config()
+        QMessageBox.information(
+            self,
+            "Import terminé",
+            f"{result.profiles_imported} profil(s) et "
+            f"{result.collections_imported} collection(s) importé(s)"
+            + (" (remplacement)." if result.replaced else " (fusion)."),
+        )
 
     def _on_analyze_log(self) -> None:
         """Manually analyze the current FS25 log (toolbar action)."""
@@ -418,6 +526,7 @@ class MainWindow(QMainWindow):
         if changed:
             profile.save()
             self.editor.set_profile(profile)
+            self.state.backup_config()
             self._status(
                 f"Profil mis à jour après audit : "
                 f"-{len(remove)} / +{len(add)} mod(s)."
@@ -617,6 +726,7 @@ class MainWindow(QMainWindow):
         if changed:
             profile.save()
             self.editor.set_profile(profile)
+            self.state.backup_config()
             self._status("Profil mis à jour après synchronisation.")
         if errors:
             QMessageBox.warning(self, "Synchronisation : erreurs", "\n".join(errors))

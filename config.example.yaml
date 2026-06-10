@@ -27,6 +27,12 @@ games:
     # Optional: game install dir (Steam) — used for modDesc.xsd lookups.
     # install_dir: "C:/Program Files (x86)/Steam/steamapps/common/Farming Simulator 25"
 
+    # Optional: a cloud-synced folder (Google Drive / OneDrive / Dropbox) where
+    # profiles + collections are mirrored automatically after each change. Only
+    # the small JSON config is copied — never the mods. Leave unset to disable
+    # (the "Exporter / Importer config" buttons still work without it).
+    # config_backup_dir: "C:/Users/<you>/OneDrive/FS25-config"
+
   fs22:
     mods_dir: "C:/Users/<you>/Documents/My Games/FarmingSimulator2022/mods"
     library_dir: "D:/FS22-Library"

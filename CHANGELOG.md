@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.2] - 2026-06-10
+
+### Added
+
+- **Sauvegarde de la config (backlog #4)** : sauvegarde des profils + collections (jamais les mods).
+  - Boutons « 📤 Exporter config » (zip horodaté des profils + collections) et « 📥 Importer config » (choix **fusionner** ou **remplacer** à chaque import).
+  - Champ optionnel `config_backup_dir` dans `config.yaml` : un dossier synchronisé (OneDrive/Drive/Dropbox) vers lequel profils + collections sont **mirrorés automatiquement** après chaque modification (copie + purge des fichiers supprimés). Sans OAuth.
+  - Logique pure dans `fsmods_gui/profiles/config_backup.py` (protection contre le zip-slip).
+
+### Build / Release
+
+- Version passée de `0.2.1` à `0.2.2`.
+
 ## [0.2.1] - 2026-06-10
 
 ### Added

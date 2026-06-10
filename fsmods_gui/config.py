@@ -56,6 +56,7 @@ class GameProfile:
     install_dir: Path | None = None
     library_dir: Path | None = None
     steam_app_id: int | None = None
+    config_backup_dir: Path | None = None  # cloud-synced folder to mirror profiles+collections
 
     @property
     def library_mods_dir(self) -> Path | None:
@@ -149,6 +150,10 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
         library_dir: Path | None = None
         if library_raw and not str(library_raw).startswith("/path/to/"):
             library_dir = Path(library_raw).expanduser()
+        backup_raw = entry.get("config_backup_dir")
+        config_backup_dir: Path | None = None
+        if backup_raw and not str(backup_raw).startswith("/path/to/"):
+            config_backup_dir = Path(backup_raw).expanduser()
         steam_app_id_raw = entry.get("steam_app_id")
         steam_app_id: int | None = None
         if steam_app_id_raw is not None:
@@ -164,6 +169,7 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
             install_dir=install_dir,
             library_dir=library_dir,
             steam_app_id=steam_app_id,
+            config_backup_dir=config_backup_dir,
         )
     return profiles
 
