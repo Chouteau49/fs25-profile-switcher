@@ -45,6 +45,7 @@ venv/
 .idea/
 
 # Claude Code local (per-user) settings
+.claude/settings.json
 .claude/settings.local.json
 *.swp
 .DS_Store
