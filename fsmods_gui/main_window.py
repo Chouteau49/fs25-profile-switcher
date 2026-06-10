@@ -134,6 +134,9 @@ class MainWindow(QMainWindow):
         log_action = QAction("📋 Analyser le log FS25", self)
         log_action.triggered.connect(self._on_analyze_log)
         toolbar.addAction(log_action)
+        audit_action = QAction("🔍 Auditer une sauvegarde", self)
+        audit_action.triggered.connect(self._on_audit_savegame)
+        toolbar.addAction(audit_action)
         toolbar.addSeparator()
         version_action = QAction(f"Version {__version__}", self)
         version_action.setEnabled(False)
@@ -342,6 +345,42 @@ class MainWindow(QMainWindow):
             self._status("Log FS25 : aucun problème détecté.")
             return
         LogReportDialog(issues, log_path=str(log_path), parent=self).exec()
+
+    def _on_audit_savegame(self) -> None:
+        if self.state.current_profile is None:
+            QMessageBox.information(self, "Aucun profil", "Sélectionne un profil à auditer.")
+            return
+        try:
+            user_dir = self.state.game.mods_dir.parent
+        except KeyError:
+            return
+        from .widgets.savegame_audit_dialog import SavegameAuditDialog
+
+        profile = self.state.current_profile
+        dlg = SavegameAuditDialog(profile, self.state.catalog, user_dir, self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        remove = dlg.mods_to_remove()
+        add = dlg.mods_to_add()
+        changed = False
+        for fname in remove:
+            if fname == profile.map_mod:
+                profile.map_mod = None
+                changed = True
+            elif fname in profile.mods:
+                profile.mods.remove(fname)
+                changed = True
+        for fname in add:
+            if fname != profile.map_mod and fname not in profile.mods:
+                profile.mods.append(fname)
+                changed = True
+        if changed:
+            profile.save()
+            self.editor.set_profile(profile)
+            self._status(
+                f"Profil mis à jour après audit : "
+                f"-{len(remove)} / +{len(add)} mod(s)."
+            )
 
     # ========================================================== activate
 

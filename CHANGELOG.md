@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.9] - 2026-06-10
+
+### Added
+
+- **Audit de sauvegarde (backlog #7)** : nouveau bouton « 🔍 Auditer une sauvegarde » qui compare le profil courant au contenu réellement utilisé par une sauvegarde FS25. Chaque mod du profil est classé en 🟢 utilisé (objet placé dans le monde / carte), 🟡 chargé sans objet placé (souvent script/pack — à examiner) ou 🔴 absent de la sauvegarde. Pré-sélection prudente : seuls les mods absents sont pré-cochés pour retrait. Vue bidirectionnelle : les mods utilisés par le save mais absents du profil sont listés et peuvent être ajoutés. **Aucun fichier n'est supprimé** — seul le profil est modifié, après confirmation. Logique pure dans `fsmods_gui/profiles/savegame_audit.py`.
+
+### Build / Release
+
+- Version passée de `0.1.8` à `0.1.9`.
+
 ## [0.1.8] - 2026-06-10
 
 ### Added
