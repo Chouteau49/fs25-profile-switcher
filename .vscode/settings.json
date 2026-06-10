@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^& \"C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe\" status --short$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
