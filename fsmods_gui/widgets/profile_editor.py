@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QTextEdit,
@@ -216,6 +217,7 @@ class ProfileEditor(QWidget):
                 self._select_map_in_combo(entry.filename)
             self._reload_selected_list()
             self.changed.emit()
+            self._handle_dependencies([entry.filename])
 
     def _add_entry_no_sync(self, entry: CatalogEntry) -> bool:
         """Adds an entry but doesn't trigger UI reload or notification.
@@ -243,9 +245,11 @@ class ProfileEditor(QWidget):
 
         changed = False
         map_changed = False
+        added: list[str] = []
         for entry in entries:
             if self._add_entry_no_sync(entry):
                 changed = True
+                added.append(entry.filename)
                 if entry.is_map:
                     map_changed = True
 
@@ -254,6 +258,59 @@ class ProfileEditor(QWidget):
                 self._select_map_in_combo(self._profile.map_mod)
             self._reload_selected_list()
             self.changed.emit()
+            self._handle_dependencies(added)
+
+    def _handle_dependencies(self, seed_filenames: list[str]) -> None:
+        """Offer to pull in dependencies declared by the just-added mods.
+
+        Best-effort: silent when the added mods declare no dependencies.
+        """
+        if self._profile is None or self._catalog is None or not seed_filenames:
+            return
+        from ..profiles.dependencies import resolve_new_dependencies
+
+        res = resolve_new_dependencies(
+            seed_filenames, self._profile.all_mod_filenames(), self._catalog
+        )
+        if not res.has_any:
+            return
+
+        added_any = False
+        if res.to_add:
+            ans = QMessageBox.question(
+                self,
+                "Dépendances requises",
+                f"{len(res.to_add)} dépendance(s) requise(s) sont présentes dans "
+                f"la bibliothèque :\n\n{self._format_dep_list(res.to_add)}\n\n"
+                f"Les ajouter au profil ?",
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                for fname in res.to_add:
+                    if fname != self._profile.map_mod and fname not in self._profile.mods:
+                        self._profile.mods.append(fname)
+                        added_any = True
+
+        if res.missing:
+            miss = "\n".join(f"• {m}" for m in res.missing)
+            QMessageBox.warning(
+                self,
+                "Dépendances introuvables",
+                f"{len(res.missing)} dépendance(s) requise(s) sont absentes de la "
+                f"bibliothèque :\n\n{miss}\n\n"
+                f"Télécharge-les puis relance un scan de la bibliothèque.",
+            )
+
+        if added_any:
+            self._reload_selected_list()
+            self.changed.emit()
+
+    def _format_dep_list(self, filenames: list[str]) -> str:
+        lines: list[str] = []
+        for fname in filenames:
+            entry = self._catalog.get(fname) if self._catalog else None
+            label = f"{entry.display_title} ({fname})" if entry else fname
+            lines.append(f"• {label}")
+        return "\n".join(lines)
 
     def _remove_selected(self) -> None:
         if self._profile is None:

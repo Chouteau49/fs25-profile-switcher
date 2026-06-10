@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.8] - 2026-06-10
+
+### Added
+
+- **Détection des dépendances (backlog #3)** : `modDesc.xml` `<dependencies>` est désormais parsé dans le catalogue (`CatalogEntry.requires`). Lors de l'ajout d'un mod au profil, les dépendances requises présentes dans la bibliothèque sont proposées à l'ajout (fermeture transitive, gestion des cycles), et celles introuvables sont signalées. Logique pure dans `fsmods_gui/profiles/dependencies.py`.
+- Les dépendances d'un mod sont affichées dans la fenêtre de détails du mod.
+
+### Build / Release
+
+- Version passée de `0.1.7` à `0.1.8`.
+- Cache du catalogue : `CACHE_SCHEMA_VERSION` 19 → 20 (re-scan automatique pour récupérer les dépendances).
+
 ## [0.1.7] - 2026-06-10
 
 ### Added

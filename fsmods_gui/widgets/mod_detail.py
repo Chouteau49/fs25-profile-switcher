@@ -46,6 +46,10 @@ class ModDetailDialog(QDialog):
         info_layout.addWidget(QLabel(f"<b>Auteur :</b> {entry.author or 'Inconnu'}"))
         info_layout.addWidget(QLabel(f"<b>Marque :</b> {entry.brand or 'N/A'}"))
         info_layout.addWidget(QLabel(f"<b>Fichier :</b> {entry.filename}"))
+        if entry.requires:
+            dep_label = QLabel(f"<b>Dépendances :</b> {', '.join(entry.requires)}")
+            dep_label.setWordWrap(True)
+            info_layout.addWidget(dep_label)
         info_layout.addStretch()
         header.addLayout(info_layout, 1)
 

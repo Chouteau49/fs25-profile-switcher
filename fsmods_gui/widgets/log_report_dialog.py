@@ -24,8 +24,13 @@ from ..profiles.log_analyzer import (
     LogIssue,
 )
 
-_ERROR_BG = QColor(255, 226, 226)
-_WARNING_BG = QColor(255, 247, 214)
+# Pale row backgrounds paired with an explicit dark text colour, so rows stay
+# readable whatever the active (light/dark) theme: without forcing the
+# foreground, a dark theme keeps light text that is invisible on these fills.
+_ERROR_BG = QColor(255, 205, 205)
+_ERROR_FG = QColor(120, 0, 0)
+_WARNING_BG = QColor(255, 240, 196)
+_WARNING_FG = QColor(120, 80, 0)
 
 
 class LogReportDialog(QDialog):
@@ -116,7 +121,9 @@ class LogReportDialog(QDialog):
     def _populate(self, issues: list[LogIssue]) -> None:
         self.table.setRowCount(len(issues))
         for row, issue in enumerate(issues):
-            bg = _ERROR_BG if issue.severity == SEV_ERROR else _WARNING_BG
+            is_error = issue.severity == SEV_ERROR
+            bg = _ERROR_BG if is_error else _WARNING_BG
+            fg = _ERROR_FG if is_error else _WARNING_FG
             cells = [
                 issue.severity_label,
                 issue.kind_label,
@@ -127,6 +134,7 @@ class LogReportDialog(QDialog):
             for col, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 item.setBackground(QBrush(bg))
+                item.setForeground(QBrush(fg))
                 if col == 3:
                     item.setToolTip(issue.raw)
                 self.table.setItem(row, col, item)

@@ -20,7 +20,7 @@
 |---|---|:---:|:---:|---|:---:|
 | 1 | Analyse des logs FS25 à la fermeture | 🟡 | **P1** | — | ✅ v0.1.7 |
 | 2 | Détection des doublons | 🟢 | **P1** | — | ✅ v0.1.7 |
-| 3 | Détection des dépendances mods/maps | 🟡 | P2 | #2 (identité mod) | À faire |
+| 3 | Détection des dépendances mods/maps | 🟡 | P2 | #2 (identité mod) | ✅ v0.1.8 |
 | 4 | Sauvegarde config sur dossier cloud synchronisé | 🟢 | P2 | — | À faire |
 | 5 | Mise à jour via GitHub | 🟡 | P2 | — | À faire |
 | 6 | Collections héritables | 🔴 | P2 | — | À faire |

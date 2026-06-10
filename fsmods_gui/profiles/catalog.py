@@ -20,7 +20,7 @@ except ImportError:
     HAS_PILLOW = False
 
 CACHE_FILE_NAME = "index.json"
-CACHE_SCHEMA_VERSION = 19
+CACHE_SCHEMA_VERSION = 20
 
 
 @dataclass
@@ -39,6 +39,7 @@ class CatalogEntry:
     author: str | None = None
     icon_filename: str | None = None
     icon_cache_path: str | None = None
+    requires: list[str] = field(default_factory=list)  # modNames declared in <dependencies>
     size_bytes: int = 0
     mtime_ns: int = 0
     error: str | None = None
@@ -153,6 +154,15 @@ def _read_moddesc_from_zip(zip_path: Path, icon_cache_dir: Path | None = None) -
             author = (root.findtext("author") or "").strip() or None
             icon = (root.findtext("iconFilename") or "").strip() or None
             is_map = root.find("maps/map") is not None
+            # Dependencies: <dependencies><dependency>FS25_OtherMod</dependency></dependencies>
+            # The text is a modName (= the other mod's .zip stem).
+            requires: list[str] = []
+            deps_node = root.find("dependencies")
+            if deps_node is not None:
+                for dep in deps_node.findall("dependency"):
+                    dep_name = (dep.text or "").strip()
+                    if dep_name and dep_name not in requires:
+                        requires.append(dep_name)
             brand = (root.findtext("brand") or root.findtext("brands/brand") or "").strip() or None
             has_brands = brand is not None
             type_tag = None
@@ -299,6 +309,7 @@ def _read_moddesc_from_zip(zip_path: Path, icon_cache_dir: Path | None = None) -
     base.category = category
     base.brand = brand
     base.type = type_tag
+    base.requires = requires
     return base
 
 
