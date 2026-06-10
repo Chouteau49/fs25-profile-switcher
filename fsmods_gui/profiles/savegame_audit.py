@@ -207,16 +207,20 @@ def audit_profile(
     profile: Profile,
     info: SavegameInfo,
     catalog: Catalog | None,
+    collection_mods: dict[str, list[str]] | None = None,
 ) -> AuditReport:
     """Classify every profile mod against the savegame (prudent pre-selection).
 
     Pre-checks for removal only the **absent** tier (mods not even loaded in the
     save), never the map. ``loaded`` and ``used`` rows are left unchecked.
+
+    The effective mod list (own mods + inherited collections − exclusions) is
+    audited when ``collection_mods`` is provided.
     """
     report = AuditReport(savegame_label=info.label)
 
     profile_ids: set[str] = set()
-    for filename in profile.all_mod_filenames():
+    for filename in profile.effective_mod_filenames(collection_mods):
         mod_id = Path(filename).stem
         key = mod_id.lower()
         profile_ids.add(key)

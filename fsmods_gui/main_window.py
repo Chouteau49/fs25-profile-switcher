@@ -131,6 +131,9 @@ class MainWindow(QMainWindow):
         dup_action = QAction("🧬 Doublons", self)
         dup_action.triggered.connect(self._on_show_duplicates)
         toolbar.addAction(dup_action)
+        collections_action = QAction("🗂️ Collections", self)
+        collections_action.triggered.connect(self._on_manage_collections)
+        toolbar.addAction(collections_action)
         log_action = QAction("📋 Analyser le log FS25", self)
         log_action.triggered.connect(self._on_analyze_log)
         toolbar.addAction(log_action)
@@ -240,6 +243,8 @@ class MainWindow(QMainWindow):
             return
         new.mods = list(src.mods)
         new.map_mod = src.map_mod
+        new.collections = list(src.collections)
+        new.excluded_mods = list(src.excluded_mods)
         new.description = src.description
         new.save()
         self._refresh_profiles_ui()
@@ -300,6 +305,8 @@ class MainWindow(QMainWindow):
             return
         self.state.catalog = catalog
         self.editor.set_catalog(catalog)
+        self.state.refresh_collections()
+        self.editor.set_collections(self.state.collections)
         self.state.refresh_profiles()
         self._refresh_profiles_ui()
         self._status(f"Bibliothèque : {len(catalog)} mods")
@@ -318,6 +325,17 @@ class MainWindow(QMainWindow):
             return
         from .widgets.duplicates_dialog import DuplicatesDialog
         DuplicatesDialog(self.state.catalog, self).exec()
+
+    def _on_manage_collections(self) -> None:
+        if self.state.catalog is None:
+            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
+            return
+        from .widgets.collections_manager import CollectionsManagerDialog
+
+        CollectionsManagerDialog(self.state, self).exec()
+        # Collections may have been added/removed/edited — re-sync the editor.
+        self.editor.set_collections(self.state.collections)
+        self.editor.set_profile(self.state.current_profile)
 
     def _on_analyze_log(self) -> None:
         """Manually analyze the current FS25 log (toolbar action)."""
@@ -357,7 +375,13 @@ class MainWindow(QMainWindow):
         from .widgets.savegame_audit_dialog import SavegameAuditDialog
 
         profile = self.state.current_profile
-        dlg = SavegameAuditDialog(profile, self.state.catalog, user_dir, self)
+        dlg = SavegameAuditDialog(
+            profile,
+            self.state.catalog,
+            user_dir,
+            self,
+            collection_mods=self.state.collection_mods_map(),
+        )
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
         remove = dlg.mods_to_remove()
@@ -369,6 +393,10 @@ class MainWindow(QMainWindow):
                 changed = True
             elif fname in profile.mods:
                 profile.mods.remove(fname)
+                changed = True
+            elif fname not in profile.excluded_mods:
+                # Inherited from a collection — exclude it for this profile.
+                profile.excluded_mods.append(fname)
                 changed = True
         for fname in add:
             if fname != profile.map_mod and fname not in profile.mods:
@@ -391,7 +419,9 @@ class MainWindow(QMainWindow):
         if self.state.catalog is None:
             QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
             return
-        missing = self.state.current_profile.missing_against(self.state.catalog)
+        missing = self.state.current_profile.missing_against(
+            self.state.catalog, self.state.collection_mods_map()
+        )
         if missing:
             preview = "\n".join(missing[:10])
             extra = f"\n… (+{len(missing) - 10} autres)" if len(missing) > 10 else ""
@@ -424,6 +454,7 @@ class MainWindow(QMainWindow):
             self.state.game,
             self.state.catalog,
             launch_after=launch_after,
+            mod_filenames=self.state.effective_filenames(profile),
         )
         self._activate_worker.progress.connect(self._on_activate_progress)
         self._activate_worker.finished.connect(self._on_activate_done)
@@ -466,7 +497,7 @@ class MainWindow(QMainWindow):
             self._watching_for_profile = self.state.current_profile.slug
             self._watching_hashes = snapshot_hashes(
                 self.state.game.mods_dir,
-                self.state.current_profile.all_mod_filenames(),
+                self.state.effective_filenames(self.state.current_profile),
             )
             self._watcher.start()
 

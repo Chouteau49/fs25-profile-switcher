@@ -14,7 +14,9 @@ from pathlib import Path
 
 from .catalog import Catalog
 
-PROFILE_SCHEMA_VERSION = 1
+PROFILE_SCHEMA_VERSION = 2
+# Schema versions we can read (older ones are migrated up on load).
+_SUPPORTED_PROFILE_SCHEMAS = (1, 2)
 
 
 class ProfileError(ValueError):
@@ -36,6 +38,8 @@ class Profile:
     game: str = "fs25"
     mods: list[str] = field(default_factory=list)
     map_mod: str | None = None  # filename of the .zip that provides the map
+    collections: list[str] = field(default_factory=list)  # slugs of inherited collections
+    excluded_mods: list[str] = field(default_factory=list)  # inherited mods disabled for this profile
     description: str = ""
     created_at: str = ""
     last_played: str | None = None
@@ -48,7 +52,11 @@ class Profile:
         return slugify(self.name)
 
     def all_mod_filenames(self) -> list[str]:
-        """Mods + map (if present and not already listed), de-duplicated, ordered."""
+        """The profile's *own* mods + map, de-duplicated, ordered.
+
+        Does NOT include inherited collections — use
+        :meth:`effective_mod_filenames` for the full activation list.
+        """
         seen: set[str] = set()
         ordered: list[str] = []
         if self.map_mod and self.map_mod not in seen:
@@ -60,8 +68,56 @@ class Profile:
                 seen.add(fname)
         return ordered
 
-    def missing_against(self, catalog: Catalog) -> list[str]:
-        return [f for f in self.all_mod_filenames() if f not in catalog]
+    def effective_mod_filenames(
+        self, collection_mods: dict[str, list[str]] | None = None
+    ) -> list[str]:
+        """Full activation list: own mods + inherited collection mods − exclusions.
+
+        ``collection_mods`` maps a collection *slug* to its mod filenames. The
+        map is always first and is never excluded. Order: map, own mods, then
+        each inherited collection in ``self.collections`` order; duplicates and
+        ``excluded_mods`` are dropped.
+        """
+        collection_mods = collection_mods or {}
+        excluded = set(self.excluded_mods)
+        seen: set[str] = set()
+        ordered: list[str] = []
+
+        if self.map_mod and self.map_mod not in seen:
+            ordered.append(self.map_mod)
+            seen.add(self.map_mod)
+
+        def add(fname: str) -> None:
+            if fname and fname not in seen and fname not in excluded:
+                seen.add(fname)
+                ordered.append(fname)
+
+        for fname in self.mods:
+            add(fname)
+        for slug in self.collections:
+            for fname in collection_mods.get(slug, []):
+                add(fname)
+        return ordered
+
+    def inherited_mod_filenames(
+        self, collection_mods: dict[str, list[str]] | None = None
+    ) -> dict[str, list[str]]:
+        """Map filename → list of collection slugs that provide it (for display)."""
+        collection_mods = collection_mods or {}
+        out: dict[str, list[str]] = {}
+        for slug in self.collections:
+            for fname in collection_mods.get(slug, []):
+                out.setdefault(fname, []).append(slug)
+        return out
+
+    def missing_against(
+        self, catalog: Catalog, collection_mods: dict[str, list[str]] | None = None
+    ) -> list[str]:
+        return [
+            f
+            for f in self.effective_mod_filenames(collection_mods)
+            if f not in catalog
+        ]
 
     def to_dict(self) -> dict:
         return {
@@ -70,6 +126,8 @@ class Profile:
             "game": self.game,
             "map_mod": self.map_mod,
             "mods": list(self.mods),
+            "collections": list(self.collections),
+            "excluded_mods": list(self.excluded_mods),
             "description": self.description,
             "created_at": self.created_at,
             "last_played": self.last_played,
@@ -80,10 +138,10 @@ class Profile:
         if not isinstance(data, dict):
             raise ProfileError("Profile JSON root must be an object.")
         schema = data.get("schema", 1)
-        if schema != PROFILE_SCHEMA_VERSION:
+        if schema not in _SUPPORTED_PROFILE_SCHEMAS:
             raise ProfileError(
                 f"Unsupported profile schema {schema!r} "
-                f"(expected {PROFILE_SCHEMA_VERSION})."
+                f"(supported: {_SUPPORTED_PROFILE_SCHEMAS})."
             )
         name = data.get("name")
         if not isinstance(name, str) or not name.strip():
@@ -94,11 +152,24 @@ class Profile:
         map_mod = data.get("map_mod")
         if map_mod is not None and not isinstance(map_mod, str):
             raise ProfileError("'map_mod' must be a string filename or null.")
+        # v2 fields: absent in v1 profiles → default to empty (migrated on save).
+        collections = data.get("collections", [])
+        if not isinstance(collections, list) or not all(
+            isinstance(c, str) for c in collections
+        ):
+            raise ProfileError("'collections' must be a list of slugs (strings).")
+        excluded = data.get("excluded_mods", [])
+        if not isinstance(excluded, list) or not all(
+            isinstance(m, str) for m in excluded
+        ):
+            raise ProfileError("'excluded_mods' must be a list of filenames (strings).")
         return cls(
             name=name,
             game=data.get("game", "fs25"),
             mods=mods,
             map_mod=map_mod,
+            collections=collections,
+            excluded_mods=excluded,
             description=data.get("description", ""),
             created_at=data.get("created_at", ""),
             last_played=data.get("last_played"),

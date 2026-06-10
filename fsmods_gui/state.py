@@ -10,6 +10,11 @@ from pathlib import Path
 
 from .config import Config, GameProfile
 from .profiles.catalog import Catalog, scan_library
+from .profiles.collection import (
+    Collection,
+    collection_path_for,
+    list_collections,
+)
 from .profiles.profile import Profile, list_profiles, profile_path_for
 
 
@@ -19,11 +24,62 @@ class AppState:
     game_key: str
     catalog: Catalog | None = None
     profiles: list[Profile] = field(default_factory=list)
+    collections: list[Collection] = field(default_factory=list)
     current_profile: Profile | None = None
 
     @property
     def game(self) -> GameProfile:
         return self.cfg.profile(self.game_key)
+
+    # ---------------------------------------------------------- collections
+
+    def refresh_collections(self) -> list[Collection]:
+        game = self.game
+        if game.library_collections_dir is None:
+            self.collections = []
+            return self.collections
+        game.library_collections_dir.mkdir(parents=True, exist_ok=True)
+        self.collections = list_collections(game.library_collections_dir)
+        return self.collections
+
+    def collection_mods_map(self) -> dict[str, list[str]]:
+        """slug -> mod filenames, for resolving a profile's effective mods."""
+        return {c.slug: list(c.mods) for c in self.collections}
+
+    def effective_filenames(self, profile: Profile | None) -> list[str]:
+        if profile is None:
+            return []
+        return profile.effective_mod_filenames(self.collection_mods_map())
+
+    def new_collection(self, name: str) -> Collection:
+        game = self.game
+        if game.library_collections_dir is None:
+            raise ValueError("library_dir non configuré.")
+        path = collection_path_for(game.library_collections_dir, name)
+        if path.exists():
+            raise FileExistsError(f"Une collection existe déjà : {path.name}")
+        col = Collection(name=name, game=self.game_key, path=path)
+        col.save(path)
+        self.collections = sorted(
+            self.collections + [col], key=lambda c: c.name.lower()
+        )
+        return col
+
+    def delete_collection(self, collection: Collection) -> list[str]:
+        """Delete a collection and unlink it from every profile that uses it.
+
+        Returns the names of profiles that referenced it (for the GUI to report).
+        """
+        if collection.path and collection.path.is_file():
+            collection.path.unlink()
+        self.collections = [c for c in self.collections if c.slug != collection.slug]
+        affected: list[str] = []
+        for prof in self.profiles:
+            if collection.slug in prof.collections:
+                prof.collections = [s for s in prof.collections if s != collection.slug]
+                prof.save()
+                affected.append(prof.name)
+        return affected
 
     def refresh_catalog(self) -> Catalog:
         game = self.game

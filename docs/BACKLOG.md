@@ -23,7 +23,7 @@
 | 3 | Détection des dépendances mods/maps | 🟡 | P2 | #2 (identité mod) | ✅ v0.1.8 |
 | 4 | Sauvegarde config sur dossier cloud synchronisé | 🟢 | P2 | — | À faire |
 | 5 | Mise à jour via GitHub | 🟡 | P2 | — | À faire |
-| 6 | Collections héritables | 🔴 | P2 | — | À faire |
+| 6 | Collections héritables | 🔴 | P2 | — | ✅ v0.2.0 |
 | 7 | Audit d'une sauvegarde (mods inutilisés) | 🔴 | P3 | #2 (mod_id) | ✅ v0.1.9 |
 | 8 | Carte des mods avec statistiques | 🟡 | P3 | #2 (doublons) | À faire |
 

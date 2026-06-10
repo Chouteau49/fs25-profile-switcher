@@ -43,6 +43,9 @@ venv/
 !.vscode/settings.json
 !.vscode/extensions.json
 .idea/
+
+# Claude Code local (per-user) settings
+.claude/settings.local.json
 *.swp
 .DS_Store
 

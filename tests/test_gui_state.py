@@ -99,3 +99,40 @@ def test_save_current_writes_to_disk(tmp_path: Path) -> None:
     assert path == prof.path
     reloaded = Profile.load(path)
     assert reloaded.description == "edited"
+
+
+# ----------------------------------------------------------------- collections
+
+
+def test_new_collection_saves(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    col = state.new_collection("Viticulture")
+    assert col.path is not None and col.path.is_file()
+    assert col in state.collections
+
+
+def test_collection_mods_map_and_effective(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    col = state.new_collection("Viti")
+    col.mods = ["FS25_Grape.zip", "FS25_Wine.zip"]
+    col.save()
+    state.refresh_collections()
+    prof = state.new_profile("P")
+    prof.mods = ["FS25_Own.zip"]
+    prof.collections = [col.slug]
+    eff = state.effective_filenames(prof)
+    assert eff == ["FS25_Own.zip", "FS25_Grape.zip", "FS25_Wine.zip"]
+
+
+def test_delete_collection_unlinks_profiles(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    col = state.new_collection("Viti")
+    prof = state.new_profile("P")
+    prof.collections = [col.slug]
+    prof.save()
+    affected = state.delete_collection(col)
+    assert affected == ["P"]
+    assert col not in state.collections
+    assert prof.collections == []
+    # Persisted unlink.
+    assert Profile.load(prof.path).collections == []

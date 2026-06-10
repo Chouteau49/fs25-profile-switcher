@@ -53,10 +53,12 @@ class SavegameAuditDialog(QDialog):
         catalog: Catalog | None,
         user_dir: Path,
         parent: QWidget | None = None,
+        collection_mods: dict[str, list[str]] | None = None,
     ) -> None:
         super().__init__(parent)
         self._profile = profile
         self._catalog = catalog
+        self._collection_mods = collection_mods or {}
         self.setWindowTitle(f"Audit de sauvegarde — profil « {profile.name} »")
         self.setMinimumSize(900, 620)
 
@@ -132,7 +134,9 @@ class SavegameAuditDialog(QDialog):
         if not path:
             return
         info = parse_savegame(Path(path))
-        self._report = audit_profile(self._profile, info, self._catalog)
+        self._report = audit_profile(
+            self._profile, info, self._catalog, self._collection_mods
+        )
         self._populate_profile_table()
         self._populate_missing_table()
         self._update_summary()

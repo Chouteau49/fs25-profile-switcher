@@ -210,6 +210,7 @@ class LibraryTable(QWidget):
 
     selection_changed = Signal(list)  # list[CatalogEntry]
     entry_double_clicked = Signal(object)  # CatalogEntry
+    add_to_collection = Signal(list)  # list[CatalogEntry]
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -425,10 +426,22 @@ class LibraryTable(QWidget):
             view_details = QAction("👁 Voir les détails…", self)
             view_details.triggered.connect(lambda: self._show_details(idx))
             menu.addAction(view_details)
+            add_coll = QAction("🗂️ Ajouter à une collection…", self)
+            add_coll.triggered.connect(self._emit_add_to_collection)
+            menu.addAction(add_coll)
             menu.addSeparator()
 
         menu.addAction(self.select_all_action)
         menu.exec_(self.view.viewport().mapToGlobal(pos))
+
+    def _emit_add_to_collection(self) -> None:
+        entries = self.selected_entries()
+        if not entries:
+            entry = self.selected_entry()
+            if entry is not None:
+                entries = [entry]
+        if entries:
+            self.add_to_collection.emit(entries)
 
     def _show_details(self, proxy_idx: QModelIndex) -> None:
         source_idx = self.proxy.mapToSource(proxy_idx)

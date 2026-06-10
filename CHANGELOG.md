@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.0] - 2026-06-10
+
+### Added
+
+- **Collections héritables (backlog #6)** : nouveau concept de *collection* = groupe nommé et réutilisable de mods (ex. « Vieux matériel », « Viticulture »). Un profil peut **hériter de plusieurs collections** ; ses mods effectifs = mods propres ∪ mods des collections héritées − exclusions.
+  - Lien **dynamique** : modifier une collection se répercute sur tous les profils qui l'héritent.
+  - **Exclusions par profil** : un profil peut désactiver individuellement un mod hérité (clic droit sur le mod → « Exclure de ce profil » / « Réintégrer »).
+  - Nouveau bouton « 🗂️ Collections » : gestionnaire (créer / dupliquer / supprimer + éditeur bibliothèque/contenu). Supprimer une collection la délie des profils concernés (avec rapport).
+  - Action « 🗂️ Ajouter à une collection… » dans le menu contextuel de la bibliothèque.
+  - L'éditeur de profil affiche les collections héritées (cases à cocher) et distingue les mods hérités (bleu) et exclus (barrés).
+  - L'activation, le calcul des mods manquants et l'audit de sauvegarde opèrent sur la liste **effective**.
+  - Les cartes ne font pas partie des collections (choix propre au profil).
+
+### Changed
+
+- **Schéma de profil 1 → 2** : ajout de `collections` et `excluded_mods`. Les profils v1 sont migrés automatiquement et réécrits en v2 à la prochaine sauvegarde (non relisibles par une version antérieure de l'app).
+
+### Build / Release
+
+- Version passée de `0.1.9` à `0.2.0`.
+
 ## [0.1.9] - 2026-06-10
 
 ### Added

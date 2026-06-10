@@ -54,12 +54,14 @@ class ActivateWorker(QObject):
         catalog: Catalog,
         *,
         launch_after: bool,
+        mod_filenames: list[str] | None = None,
     ) -> None:
         super().__init__()
         self._profile = profile
         self._game = game_profile
         self._catalog = catalog
         self._launch_after = launch_after
+        self._mod_filenames = mod_filenames
 
     def run(self) -> None:
         try:
@@ -68,6 +70,7 @@ class ActivateWorker(QObject):
                 self._game,
                 self._catalog,
                 progress=lambda c, t, m: self.progress.emit(c, t, m),
+                mod_filenames=self._mod_filenames,
             )
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))

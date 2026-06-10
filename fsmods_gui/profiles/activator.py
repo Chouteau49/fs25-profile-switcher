@@ -85,11 +85,16 @@ def activate_profile(
     catalog: Catalog,
     *,
     progress: ProgressCallback | None = None,
+    mod_filenames: list[str] | None = None,
 ) -> ActivationReport:
     """Activate ``profile`` into ``game_profile.mods_dir``.
 
     The library mods folder is read from ``catalog.mods_dir``. The game folder
     is wiped of zips first, then each profile mod is hardlinked (or copied) in.
+
+    ``mod_filenames`` overrides which mods to activate — pass the profile's
+    *effective* list (own mods + inherited collections − exclusions). When
+    omitted, the profile's own mods are used.
     """
     cb: ProgressCallback = progress or _noop_progress
     report = ActivationReport(profile_name=profile.name)
@@ -108,7 +113,7 @@ def activate_profile(
             report.errors.append(("mods_dir", f"impossible de créer {mods_dir} : {exc}"))
             return report
 
-    selection = profile.all_mod_filenames()
+    selection = mod_filenames if mod_filenames is not None else profile.all_mod_filenames()
     total = len(selection) + 1  # +1 for the wipe step
     cb(0, total, "Nettoyage du dossier mods du jeu…")
     report.removed = clear_game_mods(mods_dir)

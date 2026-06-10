@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -10,10 +10,12 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -23,8 +25,16 @@ from PySide6.QtWidgets import (
 )
 
 from ..profiles.catalog import Catalog, CatalogEntry
+from ..profiles.collection import Collection
 from ..profiles.profile import Profile
 from .library_table import LibraryTable
+
+# Roles stored on items of the "mods du profil" list.
+_KIND_MAP = "map"
+_KIND_OWN = "own"
+_KIND_INHERITED = "inherited"
+_INHERITED_FG = QColor(70, 110, 200)
+_EXCLUDED_FG = QColor(150, 150, 150)
 
 
 class ProfileEditor(QWidget):
@@ -41,6 +51,7 @@ class ProfileEditor(QWidget):
         super().__init__(parent)
         self._profile: Profile | None = None
         self._catalog: Catalog | None = None
+        self._collections: list[Collection] = []
 
         self.name_input = QLineEdit(self)
         self.name_input.editingFinished.connect(self._on_name_edited)
@@ -74,6 +85,7 @@ class ProfileEditor(QWidget):
 
         self.library = LibraryTable(self)
         self.library.entry_double_clicked.connect(self._add_entry)
+        self.library.add_to_collection.connect(self._on_add_to_collection)
 
         self.add_btn = QPushButton("Ajouter au profil →", self)
         self.add_btn.clicked.connect(self._add_selected)
@@ -84,6 +96,16 @@ class ProfileEditor(QWidget):
         self.selected_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
+        self.selected_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.selected_list.customContextMenuRequested.connect(self._on_selected_menu)
+
+        # Inherited collections (checkable)
+        self.collections_list = QListWidget(self)
+        self.collections_list.setMaximumHeight(110)
+        self.collections_list.itemChanged.connect(self._on_collection_toggled)
+        coll_box = QGroupBox("Collections héritées", self)
+        coll_layout = QVBoxLayout(coll_box)
+        coll_layout.addWidget(self.collections_list)
 
         left_box = QGroupBox("Bibliothèque", self)
         left_layout = QVBoxLayout(left_box)
@@ -91,9 +113,10 @@ class ProfileEditor(QWidget):
 
         right_box = QGroupBox("Mods du profil", self)
         right_layout = QVBoxLayout(right_box)
+        right_layout.addWidget(coll_box)
         self.count_label = QLabel("0 mod")
         right_layout.addWidget(self.count_label)
-        right_layout.addWidget(self.selected_list)
+        right_layout.addWidget(self.selected_list, 1)
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.add_btn)
         btn_row.addWidget(self.remove_btn)
@@ -116,6 +139,84 @@ class ProfileEditor(QWidget):
         self.library.set_catalog(catalog)
         self._rebuild_map_combo()
 
+    def set_collections(self, collections: list[Collection]) -> None:
+        self._collections = list(collections)
+        self._rebuild_collections_list()
+
+    def _collection_mods_map(self) -> dict[str, list[str]]:
+        return {c.slug: list(c.mods) for c in self._collections}
+
+    def _rebuild_collections_list(self) -> None:
+        self.collections_list.blockSignals(True)
+        self.collections_list.clear()
+        inherited = set(self._profile.collections) if self._profile else set()
+        for col in self._collections:
+            item = QListWidgetItem(f"{col.name}  ({len(col.mods)})")
+            item.setData(Qt.ItemDataRole.UserRole, col.slug)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if col.slug in inherited else Qt.CheckState.Unchecked
+            )
+            self.collections_list.addItem(item)
+        self.collections_list.blockSignals(False)
+
+    def _on_add_to_collection(self, entries: list[CatalogEntry]) -> None:
+        mods = [e for e in entries if not e.is_map]
+        if not mods:
+            QMessageBox.information(
+                self,
+                "Cartes ignorées",
+                "Les cartes ne peuvent pas faire partie d'une collection.",
+            )
+            return
+        if not self._collections:
+            QMessageBox.information(
+                self,
+                "Aucune collection",
+                "Crée d'abord une collection via le bouton « 🗂️ Collections ».",
+            )
+            return
+        names = [c.name for c in self._collections]
+        choice, ok = QInputDialog.getItem(
+            self, "Ajouter à une collection", "Collection :", names, 0, False
+        )
+        if not ok or not choice:
+            return
+        col = next((c for c in self._collections if c.name == choice), None)
+        if col is None:
+            return
+        added = 0
+        for entry in mods:
+            if entry.filename not in col.mods:
+                col.mods.append(entry.filename)
+                added += 1
+        if added:
+            col.save()
+            self._rebuild_collections_list()
+            # The active profile may inherit this collection → refresh its view.
+            if self._profile and col.slug in self._profile.collections:
+                self._reload_selected_list()
+                self.changed.emit()
+        QMessageBox.information(
+            self,
+            "Collection mise à jour",
+            f"{added} mod(s) ajouté(s) à « {col.name} ».",
+        )
+
+    def _on_collection_toggled(self, item: QListWidgetItem) -> None:
+        if self._profile is None:
+            return
+        slug = item.data(Qt.ItemDataRole.UserRole)
+        checked = item.checkState() == Qt.CheckState.Checked
+        if checked and slug not in self._profile.collections:
+            self._profile.collections.append(slug)
+        elif not checked and slug in self._profile.collections:
+            self._profile.collections = [
+                s for s in self._profile.collections if s != slug
+            ]
+        self._reload_selected_list()
+        self.changed.emit()
+
     def set_profile(self, profile: Profile | None) -> None:
         self._profile = profile
         block_name = self.name_input.blockSignals(True)
@@ -137,8 +238,9 @@ class ProfileEditor(QWidget):
         self.name_input.blockSignals(block_name)
         self.description.blockSignals(block_desc)
         self.map_combo.blockSignals(block_map)
+        self._rebuild_collections_list()
         self._update_map_icon()
-        
+
         # Update library table profile filter
         self.library.set_profile(profile)
 
@@ -236,6 +338,9 @@ class ProfileEditor(QWidget):
             return False
 
         self._profile.mods.append(entry.filename)
+        # Adding explicitly overrides a prior exclusion of the same mod.
+        if entry.filename in self._profile.excluded_mods:
+            self._profile.excluded_mods.remove(entry.filename)
         return True
 
     def _add_selected(self) -> None:
@@ -318,40 +423,122 @@ class ProfileEditor(QWidget):
         rows = self.selected_list.selectedItems()
         if not rows:
             return
-        targets = [item.data(Qt.ItemDataRole.UserRole) for item in rows]
         changed = False
-        for fname in targets:
-            if fname == self._profile.map_mod:
+        for item in rows:
+            fname = item.data(Qt.ItemDataRole.UserRole)
+            kind = item.data(Qt.ItemDataRole.UserRole + 1)
+            if kind == _KIND_MAP:
                 self._profile.map_mod = None
                 self._select_map_in_combo(None)
                 changed = True
-            elif fname in self._profile.mods:
+            elif kind == _KIND_OWN and fname in self._profile.mods:
                 self._profile.mods.remove(fname)
                 changed = True
+            elif kind == _KIND_INHERITED:
+                # Can't delete from a shared collection — exclude for this profile.
+                if fname not in self._profile.excluded_mods:
+                    self._profile.excluded_mods.append(fname)
+                    changed = True
         if changed:
             self._reload_selected_list()
             self.changed.emit()
+
+    def _on_selected_menu(self, pos) -> None:
+        if self._profile is None:
+            return
+        item = self.selected_list.itemAt(pos)
+        if item is None:
+            return
+        fname = item.data(Qt.ItemDataRole.UserRole)
+        kind = item.data(Qt.ItemDataRole.UserRole + 1)
+        menu = QMenu(self)
+        if kind == _KIND_INHERITED:
+            if fname in self._profile.excluded_mods:
+                act = menu.addAction("↩ Réintégrer dans ce profil")
+                act.triggered.connect(lambda: self._set_excluded(fname, False))
+            else:
+                act = menu.addAction("🚫 Exclure de ce profil")
+                act.triggered.connect(lambda: self._set_excluded(fname, True))
+        elif kind == _KIND_OWN:
+            act = menu.addAction("← Retirer du profil")
+            act.triggered.connect(self._remove_selected)
+        elif kind == _KIND_MAP:
+            act = menu.addAction("← Retirer la carte")
+            act.triggered.connect(self._remove_selected)
+        menu.exec_(self.selected_list.viewport().mapToGlobal(pos))
+
+    def _set_excluded(self, fname: str, excluded: bool) -> None:
+        if self._profile is None:
+            return
+        if excluded and fname not in self._profile.excluded_mods:
+            self._profile.excluded_mods.append(fname)
+        elif not excluded and fname in self._profile.excluded_mods:
+            self._profile.excluded_mods.remove(fname)
+        else:
+            return
+        self._reload_selected_list()
+        self.changed.emit()
 
     def _reload_selected_list(self) -> None:
         self.selected_list.clear()
         if self._profile is None:
             self.count_label.setText("0 mod")
             return
-        for fname in self._profile.all_mod_filenames():
+
+        inherited_sources = self._profile.inherited_mod_filenames(
+            self._collection_mods_map()
+        )
+        own = set(self._profile.mods)
+        excluded = set(self._profile.excluded_mods)
+        active_count = 0
+
+        def make_item(fname: str, kind: str, *, is_excluded: bool = False) -> None:
+            nonlocal active_count
             label = fname
+            is_map = False
             if self._catalog is not None:
                 entry = self._catalog.get(fname)
                 if entry is not None:
-                    suffix = " [carte]" if entry.is_map else ""
-                    label = f"{entry.display_title} ({entry.filename}){suffix}"
+                    is_map = entry.is_map
+                    label = f"{entry.display_title} ({entry.filename})"
+            if kind == _KIND_MAP:
+                label += " [carte]"
+            elif kind == _KIND_INHERITED:
+                srcs = ", ".join(inherited_sources.get(fname, []))
+                label += f"  — hérité : {srcs}" if srcs else "  — hérité"
+                if is_excluded:
+                    label += " (exclu)"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, fname)
+            item.setData(Qt.ItemDataRole.UserRole + 1, kind)
             if self._catalog is not None and fname not in self._catalog:
                 item.setForeground(Qt.GlobalColor.red)
                 item.setToolTip("Absent de la bibliothèque")
+            elif kind == _KIND_INHERITED and is_excluded:
+                item.setForeground(_EXCLUDED_FG)
+                font = item.font()
+                font.setStrikeOut(True)
+                item.setFont(font)
+            elif kind == _KIND_INHERITED:
+                item.setForeground(_INHERITED_FG)
+                item.setToolTip("Hérité d'une collection — clic droit pour exclure")
             self.selected_list.addItem(item)
-        n = len(self._profile.all_mod_filenames())
-        self.count_label.setText(f"{n} mod{'s' if n > 1 else ''}")
+            if not is_excluded:
+                active_count += 1
+
+        # Map first, then own mods, then inherited (incl. excluded, shown struck-out).
+        if self._profile.map_mod:
+            make_item(self._profile.map_mod, _KIND_MAP)
+        for fname in self._profile.mods:
+            make_item(fname, _KIND_OWN)
+        for fname in inherited_sources:
+            if fname in own or fname == self._profile.map_mod:
+                continue
+            make_item(fname, _KIND_INHERITED, is_excluded=fname in excluded)
+
+        self.count_label.setText(
+            f"{active_count} mod{'s' if active_count > 1 else ''} actif(s)"
+        )
 
     # ----------------------------------------------------------- form props
 
