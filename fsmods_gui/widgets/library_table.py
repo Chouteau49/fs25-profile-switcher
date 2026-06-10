@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..profiles.catalog import Catalog, CatalogEntry
+from ..profiles.profile import Profile
 
 COL_ICON = 0
 COL_FILENAME = 1
@@ -137,6 +138,8 @@ class LibraryFilterProxy(QSortFilterProxyModel):
         self._category = "Toutes"
         self._brand = "Toutes"
         self._sub_type = "Tous"
+        self._profile: Profile | None = None
+        self._profile_filter_mode = "all"  # "all", "not_in_profile", "in_profile"
 
     def set_search(self, text: str) -> None:
         self._needle = text.strip().lower()
@@ -158,6 +161,16 @@ class LibraryFilterProxy(QSortFilterProxyModel):
         self._sub_type = value
         self.invalidateFilter()
 
+    def set_profile(self, profile: Profile | None) -> None:
+        """Set the current profile for filtering."""
+        self._profile = profile
+        self.invalidateFilter()
+
+    def set_profile_filter_mode(self, mode: str) -> None:
+        """Set the profile filter mode: 'all', 'not_in_profile', 'in_profile'."""
+        self._profile_filter_mode = mode
+        self.invalidateFilter()
+
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
         model = self.sourceModel()
         if not isinstance(model, CatalogTableModel):
@@ -174,6 +187,14 @@ class LibraryFilterProxy(QSortFilterProxyModel):
                 return False
         if self._sub_type != "Tous":
             if not entry.type or entry.type.lower() != self._sub_type.lower():
+                return False
+        
+        # Profile filter
+        if self._profile and self._profile_filter_mode != "all":
+            is_in_profile = entry.filename in self._profile.all_mod_filenames()
+            if self._profile_filter_mode == "not_in_profile" and is_in_profile:
+                return False
+            if self._profile_filter_mode == "in_profile" and not is_in_profile:
                 return False
                 
         if not self._needle:
@@ -214,6 +235,13 @@ class LibraryTable(QWidget):
         self.type_filter = QComboBox(self)
         self.type_filter.addItem("Tous les types", userData="Tous")
         self.type_filter.currentIndexChanged.connect(self._on_type_filter_changed)
+
+        self.profile_filter = QComboBox(self)
+        self.profile_filter.addItem("Tous les mods", userData="all")
+        self.profile_filter.addItem("Non présents dans le profil", userData="not_in_profile")
+        self.profile_filter.addItem("Présents dans le profil", userData="in_profile")
+        self.profile_filter.currentIndexChanged.connect(self._on_profile_filter_changed)
+        self.profile_filter.setEnabled(False)  # Disabled until a profile is selected
 
         self.count_label = QLabel("0 mod", self)
 
@@ -257,6 +285,7 @@ class LibraryTable(QWidget):
         top.addWidget(self.cat_filter, 1)
         top.addWidget(self.brand_filter, 1)
         top.addWidget(self.type_filter, 1)
+        top.addWidget(self.profile_filter, 1)
         top.addWidget(self.count_label)
         layout.addLayout(top)
         layout.addWidget(self.view)
@@ -422,6 +451,33 @@ class LibraryTable(QWidget):
     def _on_type_filter_changed(self) -> None:
         sub_type = self.type_filter.currentData()
         self.proxy.set_sub_type(sub_type)
+        self._update_count()
+
+    def _on_profile_filter_changed(self) -> None:
+        mode = self.profile_filter.currentData()
+        self.proxy.set_profile_filter_mode(mode)
+        self._update_count()
+
+    def set_profile(self, profile: Profile | None) -> None:
+        """Set the current profile for filtering.
+        
+        When a profile is selected, automatically switches to "not_in_profile" mode.
+        When profile is None, disables the profile filter.
+        """
+        self.proxy.set_profile(profile)
+        
+        if profile is None:
+            self.profile_filter.setEnabled(False)
+            self.profile_filter.blockSignals(True)
+            self.profile_filter.setCurrentIndex(0)  # Reset to "Tous les mods"
+            self.profile_filter.blockSignals(False)
+        else:
+            self.profile_filter.setEnabled(True)
+            self.profile_filter.blockSignals(True)
+            self.profile_filter.setCurrentIndex(1)  # Automatically set to "Non présents"
+            self.profile_filter.blockSignals(False)
+            self.proxy.set_profile_filter_mode("not_in_profile")
+        
         self._update_count()
 
     def _update_count(self) -> None:

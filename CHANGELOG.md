@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.6] - 2026-06-10
+
+### Added
+
+- Added a profile-aware library filter with 3 modes: "Tous les mods", "Non presents dans le profil", and "Presents dans le profil".
+- Added automatic default filtering to show mods not already present in the selected profile.
+
+### Changed
+
+- Library filtering now combines profile presence mode with existing search/category/brand/type filters.
+
+### Build / Release
+
+- Project version bumped from `0.1.5` to `0.1.6` in `pyproject.toml` and `fsmods_gui.__version__`.
+
 ## [0.1.5] - 2026-06-10
 
 ### Added

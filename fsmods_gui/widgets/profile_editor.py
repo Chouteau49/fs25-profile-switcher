@@ -137,6 +137,9 @@ class ProfileEditor(QWidget):
         self.description.blockSignals(block_desc)
         self.map_combo.blockSignals(block_map)
         self._update_map_icon()
+        
+        # Update library table profile filter
+        self.library.set_profile(profile)
 
     def _update_map_icon(self) -> None:
         if not self._profile or not self._catalog:
