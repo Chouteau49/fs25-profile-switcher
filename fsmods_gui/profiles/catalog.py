@@ -47,6 +47,16 @@ class CatalogEntry:
     def display_title(self) -> str:
         return self.title or self.filename
 
+    @property
+    def mod_id(self) -> str:
+        """FS mod identity = the ``.zip`` filename without extension.
+
+        Farming Simulator references mods (including ``<dependencies>``) by this
+        name, so it doubles as the key for dependency resolution and as the
+        starting point for duplicate detection.
+        """
+        return Path(self.filename).stem
+
     def to_dict(self) -> dict:
         return asdict(self)
 

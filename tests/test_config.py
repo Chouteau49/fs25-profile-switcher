@@ -7,6 +7,16 @@ import pytest
 from fsmods_gui import config as cfgmod
 
 
+@pytest.fixture(autouse=True)
+def _isolate_appdata(tmp_path_factory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point %APPDATA% at an empty dir so a real per-user config on the dev
+    machine (``%APPDATA%\\fsmods-gui\\config.yaml``) never leaks into the
+    no-argument ``cfgmod.load()`` candidate search and skews these tests.
+    """
+    empty_appdata = tmp_path_factory.mktemp("appdata")
+    monkeypatch.setenv("APPDATA", str(empty_appdata))
+
+
 def test_load_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         cfgmod.load(tmp_path / "nope.yaml")

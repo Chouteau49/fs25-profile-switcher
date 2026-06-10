@@ -128,6 +128,12 @@ class MainWindow(QMainWindow):
         rescan = QAction("🔄 Rescanner la bibliothèque", self)
         rescan.triggered.connect(self._on_rescan)
         toolbar.addAction(rescan)
+        dup_action = QAction("🧬 Doublons", self)
+        dup_action.triggered.connect(self._on_show_duplicates)
+        toolbar.addAction(dup_action)
+        log_action = QAction("📋 Analyser le log FS25", self)
+        log_action.triggered.connect(self._on_analyze_log)
+        toolbar.addAction(log_action)
         toolbar.addSeparator()
         version_action = QAction(f"Version {__version__}", self)
         version_action.setEnabled(False)
@@ -301,6 +307,42 @@ class MainWindow(QMainWindow):
     def _on_rescan(self) -> None:
         self._start_scan()
 
+    # =================================================== duplicates / logs
+
+    def _on_show_duplicates(self) -> None:
+        if self.state.catalog is None:
+            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
+            return
+        from .widgets.duplicates_dialog import DuplicatesDialog
+        DuplicatesDialog(self.state.catalog, self).exec()
+
+    def _on_analyze_log(self) -> None:
+        """Manually analyze the current FS25 log (toolbar action)."""
+        try:
+            mods_dir = self.state.game.mods_dir
+        except KeyError:
+            return
+        self._show_log_report(mods_dir, only_if_issues=False)
+
+    def _show_log_report(self, mods_dir, *, only_if_issues: bool) -> None:
+        from .profiles.log_analyzer import analyze_log, log_path_for
+        from .widgets.log_report_dialog import LogReportDialog
+
+        log_path = log_path_for(mods_dir)
+        if not log_path.is_file():
+            if not only_if_issues:
+                QMessageBox.information(
+                    self,
+                    "Log introuvable",
+                    f"Aucun fichier log.txt trouvé :\n{log_path}",
+                )
+            return
+        issues = analyze_log(log_path)
+        if only_if_issues and not issues:
+            self._status("Log FS25 : aucun problème détecté.")
+            return
+        LogReportDialog(issues, log_path=str(log_path), parent=self).exec()
+
     # ========================================================== activate
 
     def _on_activate(self) -> None:
@@ -402,6 +444,16 @@ class MainWindow(QMainWindow):
 
     def _on_game_stopped(self) -> None:
         self._status("FS25 fermé — vérification de la synchronisation…")
+        try:
+            mods_dir = self.state.game.mods_dir
+        except KeyError:
+            mods_dir = None
+        self._reconcile_after_game()
+        # Analyse du log FS25 de la session qui vient de se terminer.
+        if mods_dir is not None:
+            self._show_log_report(mods_dir, only_if_issues=True)
+
+    def _reconcile_after_game(self) -> None:
         if self.state.catalog is None or self._watching_for_profile is None:
             return
         # Use whichever profile was active when we started watching, even if the
