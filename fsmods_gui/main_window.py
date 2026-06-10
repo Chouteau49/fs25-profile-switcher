@@ -134,6 +134,9 @@ class MainWindow(QMainWindow):
         collections_action = QAction("🗂️ Collections", self)
         collections_action.triggered.connect(self._on_manage_collections)
         toolbar.addAction(collections_action)
+        stats_action = QAction("📊 Statistiques", self)
+        stats_action.triggered.connect(self._on_show_stats)
+        toolbar.addAction(stats_action)
         log_action = QAction("📋 Analyser le log FS25", self)
         log_action.triggered.connect(self._on_analyze_log)
         toolbar.addAction(log_action)
@@ -325,6 +328,16 @@ class MainWindow(QMainWindow):
             return
         from .widgets.duplicates_dialog import DuplicatesDialog
         DuplicatesDialog(self.state.catalog, self).exec()
+
+    def _on_show_stats(self) -> None:
+        if self.state.catalog is None:
+            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
+            return
+        from .widgets.stats_dashboard import StatsDashboardDialog
+
+        StatsDashboardDialog(
+            self.state.catalog, self.state.profiles, self.state.collections, self
+        ).exec()
 
     def _on_manage_collections(self) -> None:
         if self.state.catalog is None:

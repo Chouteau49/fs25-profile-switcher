@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.1] - 2026-06-10
+
+### Added
+
+- **Carte des mods / statistiques (backlog #8)** : nouveau bouton « 📊 Statistiques » ouvrant un tableau de bord de la bibliothèque — vue d'ensemble (nombre de mods, taille totale, cartes, profils, collections, doublons, orphelins, erreurs de lecture), répartition par catégorie (nombre + taille), top marques, mods par profil (effectifs) et par collection, liste des mods orphelins (dans aucun profil ni collection) et des erreurs de lecture. Calcul pur dans `fsmods_gui/profiles/stats.py`, réutilisant la détection de doublons (#2) et les collections (#6).
+
+### Build / Release
+
+- Version passée de `0.2.0` à `0.2.1`.
+
 ## [0.2.0] - 2026-06-10
 
 ### Added
