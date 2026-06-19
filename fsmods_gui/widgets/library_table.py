@@ -466,6 +466,9 @@ class LibraryTable(QWidget):
         layout.addLayout(top)
         layout.addWidget(self.stack)
 
+        # Default to the gallery (thumbnail) view everywhere the library appears.
+        self.set_view_mode("grid")
+
     # --------------------------------------------------------------- view mode
 
     def set_view_mode(self, mode: str) -> None:
