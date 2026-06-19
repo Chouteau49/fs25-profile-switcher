@@ -33,6 +33,13 @@ games:
     # (the "Exporter / Importer config" buttons still work without it).
     # config_backup_dir: "C:/Users/<you>/OneDrive/FS25-config"
 
+    # Optional: where the "📥 Nouveaux mods" view looks for freshly downloaded
+    # mods to classify and import into the library. By default it scans your
+    # Windows Downloads folder AND a dedicated inbox folder (<library_dir>/_inbox).
+    # Override either one here if needed.
+    # downloads_dir: "C:/Users/<you>/Downloads"
+    # inbox_dir: "D:/FS25-Library/_inbox"
+
   fs22:
     mods_dir: "C:/Users/<you>/Documents/My Games/FarmingSimulator2022/mods"
     library_dir: "D:/FS22-Library"

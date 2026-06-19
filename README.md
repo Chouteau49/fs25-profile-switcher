@@ -32,6 +32,7 @@ sinon elle retombe automatiquement sur une copie classique.
 - **Lancement Steam** : bouton « Activer & lancer » qui démarre le jeu via `steam://rungameid/<id>`.
 - **Sync au retour de partie** : à la fermeture de FS25, l'app détecte les mods ajoutés, supprimés, et les mods mis à jour en jeu (ModHub), puis propose l'action adaptée.
 - **Détails des mods** : aperçu de la fiche modDesc (icône, version, description, multijoueur).
+- **Routes AutoDrive** : installe un pack de routes AutoDrive téléchargé (les XML `AutoDrive_config.xml` / `AutoDriveUsersData.xml`) dans une sauvegarde choisie, en sauvegardant les anciens en `.bak`.
 
 ## Installation joueur (binaire `.exe`)
 

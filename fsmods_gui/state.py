@@ -16,6 +16,7 @@ from .profiles.collection import (
     collection_path_for,
     list_collections,
 )
+from .profiles.inbox import PendingMod, import_pending, scan_sources
 from .profiles.profile import Profile, list_profiles, profile_path_for
 
 
@@ -26,6 +27,25 @@ class DeleteModsResult:
     removed_files: list[str] = field(default_factory=list)
     affected_profiles: list[str] = field(default_factory=list)
     affected_collections: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ImportPlan:
+    """One pending mod plus the profiles/collections to classify it into."""
+
+    pending: PendingMod
+    profile_slugs: list[str] = field(default_factory=list)
+    collection_slugs: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ImportNewModsResult:
+    """Outcome of :meth:`AppState.import_new_mods` (for the GUI to report)."""
+
+    imported: list[str] = field(default_factory=list)
+    affected_profiles: list[str] = field(default_factory=list)
+    affected_collections: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -167,6 +187,97 @@ class AppState:
             cache.parent.mkdir(parents=True, exist_ok=True)
         self.catalog = scan_library(game.library_mods_dir, cache_path=cache)
         return self.catalog
+
+    # ----------------------------------------------------------- new mods
+
+    def scan_new_mods(self) -> list[PendingMod]:
+        """Find downloaded mods (Downloads + inbox) not yet in the library.
+
+        Creates the inbox folder on demand so the user can find where to drop
+        files. Returns an empty list when no library is configured.
+        """
+        game = self.game
+        if game.library_mods_dir is None:
+            return []
+        inbox = game.inbox_dir_effective
+        if inbox is not None:
+            with contextlib.suppress(OSError):
+                inbox.mkdir(parents=True, exist_ok=True)
+        icon_cache_dir = (
+            game.library_cache_dir / "icons" if game.library_cache_dir else None
+        )
+        return scan_sources(
+            game.new_mod_source_dirs(), game.library_mods_dir, icon_cache_dir
+        )
+
+    def import_new_mods(self, plans: list[ImportPlan]) -> ImportNewModsResult:
+        """Move each planned mod into the library and classify it.
+
+        For every plan: the zip is cut from its source folder into
+        ``library/mods``, added to the catalog, then appended to the chosen
+        profiles/collections (a map mod is set as the profile's map when the
+        profile has none). Touched profiles/collections and the catalog cache
+        are saved, and the config backup is refreshed.
+        """
+        result = ImportNewModsResult()
+        game = self.game
+        mods_dir = game.library_mods_dir
+        if mods_dir is None:
+            result.errors.append("Bibliothèque non configurée (library_dir).")
+            return result
+        if self.catalog is None:
+            self.catalog = Catalog(mods_dir=mods_dir)
+        icon_cache_dir = (
+            game.library_cache_dir / "icons" if game.library_cache_dir else None
+        )
+
+        prof_by_slug = {p.slug: p for p in self.profiles}
+        col_by_slug = {c.slug: c for c in self.collections}
+        changed_profiles: dict[str, Profile] = {}
+        changed_collections: dict[str, Collection] = {}
+
+        for plan in plans:
+            try:
+                filename = import_pending(
+                    plan.pending, mods_dir, self.catalog, icon_cache_dir
+                )
+            except (FileNotFoundError, OSError) as exc:
+                result.errors.append(f"{plan.pending.filename}: {exc}")
+                continue
+            result.imported.append(filename)
+            entry = self.catalog.get(filename)
+            is_map = bool(entry and entry.is_map)
+
+            for slug in plan.profile_slugs:
+                prof = prof_by_slug.get(slug)
+                if prof is None:
+                    continue
+                if is_map and prof.map_mod is None:
+                    prof.map_mod = filename
+                    changed_profiles[slug] = prof
+                elif filename != prof.map_mod and filename not in prof.mods:
+                    prof.mods.append(filename)
+                    changed_profiles[slug] = prof
+
+            for slug in plan.collection_slugs:
+                col = col_by_slug.get(slug)
+                if col is None or filename in col.mods:
+                    continue
+                col.mods.append(filename)
+                changed_collections[slug] = col
+
+        for prof in changed_profiles.values():
+            prof.save()
+            result.affected_profiles.append(prof.name)
+        for col in changed_collections.values():
+            col.save()
+            result.affected_collections.append(col.name)
+
+        if result.imported and game.library_cache_dir is not None:
+            self.catalog.save_cache(game.library_cache_dir / "index.json")
+        if result.affected_profiles or result.affected_collections:
+            self.backup_config()
+        return result
 
     def refresh_profiles(self) -> list[Profile]:
         game = self.game

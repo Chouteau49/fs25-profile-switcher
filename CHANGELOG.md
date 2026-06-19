@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.2.6] - 2026-06-19
+
+### Added
+
+- **Routes AutoDrive : pré-installer un pack de routes dans une sauvegarde** : nouvelle action de barre d'outils « 🛣 Routes AutoDrive ». Certains packs communautaires fournissent un réseau de routes AutoDrive sous forme de `.zip` qui n'est **pas un mod** (pas de `modDesc.xml`) mais contient les fichiers `AutoDrive_config.xml` / `AutoDriveUsersData.xml` que le jeu lit dans le dossier d'une sauvegarde. La vue scanne les **dossiers source** (Téléchargements + `new_mods`) à la recherche de ces packs, on choisit le pack et la **sauvegarde cible** (`savegameN`, affichée avec son nom + sa carte), puis « Installer » : les XML AutoDrive déjà présents sont **renommés en `.bak`** (non destructif, retour arrière possible) avant que les fichiers du pack ne soient déposés. C'est l'équivalent automatisé de la procédure manuelle « supprimer les anciens XML, dézipper, copier les deux fichiers ».
+  - Nouveau module `fsmods_gui/profiles/autodrive.py` (`AutoDrivePack`, `detect_pack`, `scan_packs`, `install_pack`) — sans Qt, testé.
+  - Nouvelle vue `fsmods_gui/widgets/autodrive_dialog.py` (`AutoDriveDialog`).
+
+### Build / Release
+
+- Version passée de `0.2.5` à `0.2.6`.
+
+## [0.2.5] - 2026-06-19
+
+### Added
+
+- **Vue « 📥 Nouveaux mods » : importer les mods téléchargés et les classer** : nouvelle action de barre d'outils qui scanne le **dossier Téléchargements de Windows** *et* un **dossier dédié `new_mods`** (l'« inbox ») à la recherche de `.zip` pas encore présents dans la bibliothèque. Chaque mod trouvé s'affiche en vignette (icône + titre + catégorie · version, badge 🗺 pour les cartes). On sélectionne un ou plusieurs mods, on coche les **profils** et/ou **collections** où les classer (cocher une cible marque aussi le mod « à importer »), puis « Importer » : chaque `.zip` est **déplacé (coupé)** depuis sa source vers `library/mods`, ajouté au catalogue, et ajouté aux profils/collections choisis (un mod de carte devient la carte du profil s'il n'en a pas encore). Les mods cochés sans cible sont simplement ajoutés à la bibliothèque.
+  - Nouveau module `fsmods_gui/profiles/inbox.py` (`PendingMod`, `scan_sources`, `import_pending`) — sans Qt, testé.
+  - Nouvelle vue `fsmods_gui/widgets/new_mods_dialog.py` (`NewModsDialog`).
+  - `AppState.scan_new_mods()` / `AppState.import_new_mods()` (`ImportPlan`, `ImportNewModsResult`).
+- **Config : dossiers source paramétrables** : `games.<jeu>.downloads_dir` (défaut : dossier *Téléchargements* de l'utilisateur) et `games.<jeu>.inbox_dir` (défaut : `<library_dir>/_inbox`, créé automatiquement). Voir `config.example.yaml`.
+
+### Build / Release
+
+- Version passée de `0.2.4` à `0.2.5`.
+
 ## [0.2.4] - 2026-06-19
 
 ### Changed

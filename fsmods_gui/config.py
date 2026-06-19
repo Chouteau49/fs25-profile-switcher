@@ -57,10 +57,51 @@ class GameProfile:
     library_dir: Path | None = None
     steam_app_id: int | None = None
     config_backup_dir: Path | None = None  # cloud-synced folder to mirror profiles+collections
+    downloads_dir: Path | None = None  # override; defaults to the user's Downloads folder
+    inbox_dir: Path | None = None  # override; defaults to <library_dir>/_inbox
 
     @property
     def library_mods_dir(self) -> Path | None:
         return self.library_dir / "mods" if self.library_dir else None
+
+    @property
+    def inbox_dir_effective(self) -> Path | None:
+        """Dedicated drop folder for freshly downloaded mods (``new_mods``).
+
+        Uses the configured ``inbox_dir`` if set, otherwise ``<library_dir>/_inbox``.
+        Returns ``None`` only when no library is configured and no override is set.
+        """
+        if self.inbox_dir is not None:
+            return self.inbox_dir
+        return self.library_dir / "_inbox" if self.library_dir else None
+
+    @property
+    def downloads_dir_effective(self) -> Path:
+        """Folder to scan for downloaded mods; defaults to the OS Downloads dir."""
+        return self.downloads_dir if self.downloads_dir is not None else Path.home() / "Downloads"
+
+    def new_mod_source_dirs(self) -> list[Path]:
+        """Ordered, de-duplicated folders to scan for new (un-imported) mods.
+
+        The Downloads folder first, then the dedicated inbox/new_mods folder.
+        Only folders that resolve to a path are returned (existence is the
+        caller's concern — the inbox is created on demand).
+        """
+        dirs: list[Path] = [self.downloads_dir_effective]
+        inbox = self.inbox_dir_effective
+        if inbox is not None:
+            dirs.append(inbox)
+        out: list[Path] = []
+        seen: set[Path] = set()
+        for d in dirs:
+            try:
+                key = d.resolve()
+            except OSError:
+                key = d
+            if key not in seen:
+                seen.add(key)
+                out.append(d)
+        return out
 
     @property
     def library_profiles_dir(self) -> Path | None:
@@ -154,6 +195,14 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
         config_backup_dir: Path | None = None
         if backup_raw and not str(backup_raw).startswith("/path/to/"):
             config_backup_dir = Path(backup_raw).expanduser()
+        downloads_raw = entry.get("downloads_dir")
+        downloads_dir: Path | None = None
+        if downloads_raw and not str(downloads_raw).startswith("/path/to/"):
+            downloads_dir = Path(downloads_raw).expanduser()
+        inbox_raw = entry.get("inbox_dir")
+        inbox_dir: Path | None = None
+        if inbox_raw and not str(inbox_raw).startswith("/path/to/"):
+            inbox_dir = Path(inbox_raw).expanduser()
         steam_app_id_raw = entry.get("steam_app_id")
         steam_app_id: int | None = None
         if steam_app_id_raw is not None:
@@ -170,6 +219,8 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
             library_dir=library_dir,
             steam_app_id=steam_app_id,
             config_backup_dir=config_backup_dir,
+            downloads_dir=downloads_dir,
+            inbox_dir=inbox_dir,
         )
     return profiles
 

@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, QThread, QSize
 from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFileDialog,
     QFileIconProvider,
     QHBoxLayout,
@@ -146,6 +147,13 @@ class MainWindow(QMainWindow):
         rescan = QAction("🔄 Rescanner la bibliothèque", self)
         rescan.triggered.connect(self._on_rescan)
         toolbar.addAction(rescan)
+        new_mods_action = QAction("📥 Nouveaux mods", self)
+        new_mods_action.setToolTip(
+            "Importer les mods téléchargés (Téléchargements + dossier new_mods) "
+            "et les classer dans des profils / collections."
+        )
+        new_mods_action.triggered.connect(self._on_new_mods)
+        toolbar.addAction(new_mods_action)
         dup_action = QAction("🧬 Doublons", self)
         dup_action.triggered.connect(self._on_show_duplicates)
         toolbar.addAction(dup_action)
@@ -158,6 +166,13 @@ class MainWindow(QMainWindow):
         audit_action = QAction("🔍 Auditer une sauvegarde", self)
         audit_action.triggered.connect(self._on_audit_savegame)
         toolbar.addAction(audit_action)
+        autodrive_action = QAction("🛣 Routes AutoDrive", self)
+        autodrive_action.setToolTip(
+            "Installer un pack de routes AutoDrive téléchargé "
+            "(AutoDrive_config.xml / AutoDriveUsersData.xml) dans une sauvegarde."
+        )
+        autodrive_action.triggered.connect(self._on_install_autodrive)
+        toolbar.addAction(autodrive_action)
         toolbar.addSeparator()
         export_action = QAction("📤 Exporter config", self)
         export_action.triggered.connect(self._on_export_config)
@@ -524,6 +539,75 @@ class MainWindow(QMainWindow):
     def _on_rescan(self) -> None:
         self._start_scan()
 
+    # =================================================== new mods (download)
+
+    def _scan_new_mods(self):
+        """Scan the source folders with a wait cursor; return pending mods."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            return self.state.scan_new_mods()
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _on_new_mods(self) -> None:
+        try:
+            game = self.state.game
+        except KeyError:
+            return
+        if game.library_mods_dir is None:
+            QMessageBox.warning(
+                self,
+                "Bibliothèque non configurée",
+                f"Renseigne games.{self.state.game_key}.library_dir dans config.yaml.",
+            )
+            return
+        if self.state.catalog is None:
+            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
+            return
+
+        from .widgets.new_mods_dialog import NewModsDialog
+
+        pending = self._scan_new_mods()
+        dlg = NewModsDialog(pending, self.state, self)
+        dlg.rescan_requested.connect(lambda: dlg.set_pending(self._scan_new_mods()))
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        plans = dlg.result_plans()
+        if not plans:
+            return
+
+        result = self.state.import_new_mods(plans)
+
+        # Refresh everything the import may have touched.
+        self.editor.set_catalog(self.state.catalog)
+        self.editor.set_collections(self.state.collections)
+        self._refresh_collections_ui()
+        target = self.editor.current_target()
+        self._refresh_profiles_ui()
+        from .profiles.collection import Collection
+
+        if isinstance(target, Collection):
+            self._select_collection_slug(target.slug)
+        elif target is not None:
+            self.editor.set_target(target)
+
+        msg = f"{len(result.imported)} mod(s) importé(s) dans la bibliothèque."
+        if result.affected_profiles:
+            msg += "\nProfils mis à jour : " + ", ".join(result.affected_profiles)
+        if result.affected_collections:
+            msg += "\nCollections mises à jour : " + ", ".join(
+                result.affected_collections
+            )
+        self._status(f"{len(result.imported)} nouveau(x) mod(s) importé(s).")
+        if result.errors:
+            QMessageBox.warning(
+                self,
+                "Import : erreurs",
+                msg + "\n\nErreurs :\n" + "\n".join(result.errors[:10]),
+            )
+        else:
+            QMessageBox.information(self, "Import terminé", msg)
+
     # =================================================== duplicates / logs
 
     def _on_show_duplicates(self) -> None:
@@ -711,6 +795,57 @@ class MainWindow(QMainWindow):
             self._status(
                 f"Profil mis à jour après audit : "
                 f"-{len(remove)} / +{len(add)} mod(s)."
+            )
+
+    def _on_install_autodrive(self) -> None:
+        try:
+            game = self.state.game
+        except KeyError:
+            return
+        user_dir = game.mods_dir.parent
+        source_dirs = game.new_mod_source_dirs()
+
+        from .profiles.autodrive import install_pack, scan_packs
+        from .widgets.autodrive_dialog import AutoDriveDialog
+
+        dlg = AutoDriveDialog(source_dirs, user_dir, self)
+        dlg.rescan_requested.connect(
+            lambda: dlg.set_packs(scan_packs(game.new_mod_source_dirs()))
+        )
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        pack = dlg.selected_pack()
+        savegame = dlg.selected_savegame()
+        if pack is None or savegame is None:
+            return
+
+        result = install_pack(pack, savegame, backup=dlg.backup_enabled())
+        if result.installed:
+            lines = [
+                f"{len(result.installed)} fichier(s) installé(s) dans "
+                f"{savegame.name} : {', '.join(result.installed)}."
+            ]
+            if result.backed_up:
+                lines.append("Sauvegardes : " + " ; ".join(result.backed_up))
+            self._status(
+                f"AutoDrive : {len(result.installed)} fichier(s) installé(s) "
+                f"dans {savegame.name}."
+            )
+            if result.errors:
+                QMessageBox.warning(
+                    self,
+                    "Routes AutoDrive",
+                    "\n".join(lines) + "\n\nErreurs :\n" + "\n".join(result.errors),
+                )
+            else:
+                QMessageBox.information(
+                    self, "Routes AutoDrive", "\n".join(lines)
+                )
+        else:
+            QMessageBox.warning(
+                self,
+                "Routes AutoDrive",
+                "Aucun fichier installé.\n\n" + "\n".join(result.errors),
             )
 
     # ========================================================== activate
