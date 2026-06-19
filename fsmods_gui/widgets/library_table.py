@@ -8,12 +8,23 @@ from __future__ import annotations
 from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
+    QRect,
     QSize,
     QSortFilterProxyModel,
     Qt,
     Signal,
 )
-from PySide6.QtGui import QAction, QIcon, QImage, QKeySequence, QPixmap
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QFont,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -21,8 +32,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QMenu,
+    QStackedWidget,
+    QStyle,
+    QStyledItemDelegate,
     QTableView,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -121,6 +137,123 @@ class CatalogTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.UserRole:
             return entry
         return None
+
+
+# ---- Gallery (grid) view -------------------------------------------------
+
+CARD_THUMB = 150  # thumbnail square side, in px
+CARD_PAD = 8
+CARD_TEXT_H = 46  # room for two text lines under the thumbnail
+CARD_W = CARD_THUMB + 2 * CARD_PAD
+CARD_H = CARD_THUMB + CARD_TEXT_H + 2 * CARD_PAD
+
+
+class ModCardDelegate(QStyledItemDelegate):
+    """Render each catalog entry as a ModHub-style card (big thumbnail + title).
+
+    Bound to a :class:`QListView` in icon mode whose model column is
+    ``COL_TITLE`` so ``DisplayRole`` yields the title.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._pixmaps: dict[str, QPixmap] = {}
+
+    def _thumb(self, entry: CatalogEntry) -> QPixmap | None:
+        path = entry.icon_cache_path
+        if not path:
+            return None
+        if path not in self._pixmaps:
+            pix = QPixmap(path)
+            if pix.isNull():
+                self._pixmaps[path] = QPixmap()  # cache the miss
+            else:
+                self._pixmaps[path] = pix.scaled(
+                    CARD_THUMB,
+                    CARD_THUMB,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+        pix = self._pixmaps[path]
+        return pix if not pix.isNull() else None
+
+    def sizeHint(self, option, index: QModelIndex) -> QSize:
+        return QSize(CARD_W, CARD_H)
+
+    def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
+        entry = index.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(entry, CatalogEntry):
+            super().paint(painter, option, index)
+            return
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        rect = option.rect.adjusted(3, 3, -3, -3)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
+
+        # Card background
+        if selected:
+            bg = option.palette.highlight().color()
+            border = bg.lighter(120)
+        else:
+            bg = QColor("#2a2a2a") if not hovered else QColor("#343434")
+            border = QColor("#555") if not hovered else QColor("#7a7a7a")
+        painter.setBrush(bg)
+        painter.setPen(QPen(border, 1))
+        painter.drawRoundedRect(rect, 8, 8)
+
+        # Thumbnail (centered in the upper square zone)
+        thumb_zone = QRect(rect.left() + CARD_PAD, rect.top() + CARD_PAD, CARD_THUMB, CARD_THUMB)
+        pix = self._thumb(entry)
+        if pix is not None:
+            px = thumb_zone.left() + (thumb_zone.width() - pix.width()) // 2
+            py = thumb_zone.top() + (thumb_zone.height() - pix.height()) // 2
+            painter.drawPixmap(px, py, pix)
+        else:
+            painter.setPen(QPen(QColor("#666")))
+            painter.drawText(thumb_zone, Qt.AlignmentFlag.AlignCenter, "🧩")
+
+        text_color = (
+            option.palette.highlightedText().color() if selected else QColor("#e6e6e6")
+        )
+
+        # Title (one line, elided)
+        title_rect = QRect(
+            rect.left() + CARD_PAD,
+            thumb_zone.bottom() + 4,
+            rect.width() - 2 * CARD_PAD,
+            18,
+        )
+        title_font = QFont(option.font)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+        painter.setPen(QPen(text_color))
+        title = painter.fontMetrics().elidedText(
+            entry.display_title, Qt.TextElideMode.ElideRight, title_rect.width()
+        )
+        painter.drawText(title_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, title)
+
+        # Subtitle: category + version
+        sub_rect = QRect(title_rect.left(), title_rect.bottom() + 1, title_rect.width(), 16)
+        sub_font = QFont(option.font)
+        sub_font.setPointSizeF(max(7.0, option.font.pointSizeF() - 1))
+        painter.setFont(sub_font)
+        painter.setPen(QPen(QColor("#9aa0a6") if not selected else text_color))
+        sub = entry.category
+        if entry.version and entry.version != "0.0.0.0":
+            sub = f"{sub} · v{entry.version}"
+        sub = painter.fontMetrics().elidedText(sub, Qt.TextElideMode.ElideRight, sub_rect.width())
+        painter.drawText(sub_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, sub)
+
+        # Error marker
+        if entry.error:
+            painter.setPen(QPen(QColor("#e57373")))
+            painter.drawText(thumb_zone.adjusted(4, 4, -4, -4), Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight, "⚠")
+
+        painter.restore()
 
 
 class LibraryFilterProxy(QSortFilterProxyModel):
@@ -246,6 +379,20 @@ class LibraryTable(QWidget):
 
         self.count_label = QLabel("0 mod", self)
 
+        # View-mode toggle (table / gallery)
+        self.table_btn = QToolButton(self)
+        self.table_btn.setText("☰")
+        self.table_btn.setToolTip("Vue tableau")
+        self.table_btn.setCheckable(True)
+        self.table_btn.setChecked(True)
+        self.table_btn.clicked.connect(lambda: self.set_view_mode("table"))
+
+        self.grid_btn = QToolButton(self)
+        self.grid_btn.setText("▦")
+        self.grid_btn.setToolTip("Vue galerie (grandes vignettes)")
+        self.grid_btn.setCheckable(True)
+        self.grid_btn.clicked.connect(lambda: self.set_view_mode("grid"))
+
         self.view = QTableView(self)
         self.view.setModel(self.proxy)
         self.view.setSortingEnabled(True)
@@ -274,10 +421,35 @@ class LibraryTable(QWidget):
         self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._on_context_menu)
 
+        # ---- Gallery (grid) view, sharing the same proxy model
+        self.grid = QListView(self)
+        self.grid.setModel(self.proxy)
+        self.grid.setModelColumn(COL_TITLE)  # DisplayRole/keyboard search on the title
+        self.grid.setItemDelegate(ModCardDelegate(self.grid))
+        self.grid.setViewMode(QListView.ViewMode.IconMode)
+        self.grid.setResizeMode(QListView.ResizeMode.Adjust)
+        self.grid.setMovement(QListView.Movement.Static)
+        self.grid.setFlow(QListView.Flow.LeftToRight)
+        self.grid.setWrapping(True)
+        self.grid.setUniformItemSizes(True)
+        self.grid.setSpacing(6)
+        self.grid.setMouseTracking(True)
+        self.grid.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.grid.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        self.grid.doubleClicked.connect(self._on_double_click)
+        self.grid.selectionModel().selectionChanged.connect(self._on_selection)
+        self.grid.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.grid.customContextMenuRequested.connect(self._on_grid_context_menu)
+
+        self.stack = QStackedWidget(self)
+        self.stack.addWidget(self.view)   # index 0 = table
+        self.stack.addWidget(self.grid)   # index 1 = gallery
+        self._view_mode = "table"
+
         # Ctrl+A shortcut
         self.select_all_action = QAction("Tout sélectionner", self)
         self.select_all_action.setShortcut(QKeySequence.StandardKey.SelectAll)
-        self.select_all_action.triggered.connect(self.view.selectAll)
+        self.select_all_action.triggered.connect(self._select_all)
         self.addAction(self.select_all_action)
 
         layout = QVBoxLayout(self)
@@ -288,8 +460,30 @@ class LibraryTable(QWidget):
         top.addWidget(self.type_filter, 1)
         top.addWidget(self.profile_filter, 1)
         top.addWidget(self.count_label)
+        top.addWidget(self.table_btn)
+        top.addWidget(self.grid_btn)
         layout.addLayout(top)
-        layout.addWidget(self.view)
+        layout.addWidget(self.stack)
+
+    # --------------------------------------------------------------- view mode
+
+    def set_view_mode(self, mode: str) -> None:
+        """Switch between the ``"table"`` and ``"grid"`` (gallery) views."""
+        if mode not in ("table", "grid"):
+            return
+        self._view_mode = mode
+        is_grid = mode == "grid"
+        self.stack.setCurrentIndex(1 if is_grid else 0)
+        self.table_btn.setChecked(not is_grid)
+        self.grid_btn.setChecked(is_grid)
+        self._on_selection()  # re-sync downstream listeners to the active view
+
+    @property
+    def _active_view(self) -> QAbstractItemView:
+        return self.grid if self._view_mode == "grid" else self.view
+
+    def _select_all(self) -> None:
+        self._active_view.selectAll()
 
     def set_catalog(self, catalog: Catalog | None) -> None:
         self.model.set_catalog(catalog)
@@ -401,27 +595,39 @@ class LibraryTable(QWidget):
 
     def selected_entry(self) -> CatalogEntry | None:
         """Returns the 'current' (focused) entry."""
-        idx = self.view.currentIndex()
+        idx = self._active_view.currentIndex()
         if not idx.isValid():
             return None
         source = self.proxy.mapToSource(idx)
         return self.model.entry_at(source.row())
 
     def selected_entries(self) -> list[CatalogEntry]:
-        """Returns all selected entries."""
-        idxs = self.view.selectionModel().selectedRows()
-        entries = []
-        for idx in idxs:
-            source = self.proxy.mapToSource(idx)
-            entry = self.model.entry_at(source.row())
+        """Returns all selected entries (deduplicated by row, any view)."""
+        sel = self._active_view.selectionModel()
+        if sel is None:
+            return []
+        entries: list[CatalogEntry] = []
+        seen: set[int] = set()
+        for idx in sel.selectedIndexes():
+            row = self.proxy.mapToSource(idx).row()
+            if row in seen:
+                continue
+            seen.add(row)
+            entry = self.model.entry_at(row)
             if entry:
                 entries.append(entry)
         return entries
 
     def _on_context_menu(self, pos) -> None:
+        self._show_context_menu(self.view, pos)
+
+    def _on_grid_context_menu(self, pos) -> None:
+        self._show_context_menu(self.grid, pos)
+
+    def _show_context_menu(self, view: QAbstractItemView, pos) -> None:
         menu = QMenu(self)
-        
-        idx = self.view.indexAt(pos)
+
+        idx = view.indexAt(pos)
         if idx.isValid():
             view_details = QAction("👁 Voir les détails…", self)
             view_details.triggered.connect(lambda: self._show_details(idx))
@@ -432,7 +638,7 @@ class LibraryTable(QWidget):
             menu.addSeparator()
 
         menu.addAction(self.select_all_action)
-        menu.exec_(self.view.viewport().mapToGlobal(pos))
+        menu.exec_(view.viewport().mapToGlobal(pos))
 
     def _emit_add_to_collection(self) -> None:
         entries = self.selected_entries()
