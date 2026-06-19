@@ -21,6 +21,19 @@ from pathlib import Path
 
 from .catalog import Catalog, CatalogEntry, _read_moddesc_from_zip
 
+# Status of a downloaded zip relative to what's already in the library.
+STATUS_NEW = "new"            # no file of this name in the library yet
+STATUS_UPDATE = "update"      # same name in library but a different size (newer build)
+STATUS_DUPLICATE = "duplicate"  # same name + same size: already imported
+
+_STATUS_LABELS = {
+    STATUS_NEW: "nouveau",
+    STATUS_UPDATE: "mise à jour",
+    STATUS_DUPLICATE: "déjà dans la bibliothèque",
+}
+# New + updates first, already-imported last; then alphabetical.
+_STATUS_RANK = {STATUS_NEW: 0, STATUS_UPDATE: 1, STATUS_DUPLICATE: 2}
+
 
 @dataclass
 class PendingMod:
@@ -28,10 +41,19 @@ class PendingMod:
 
     source_path: Path
     entry: CatalogEntry  # parsed modDesc (title, icon, category, is_map, …)
+    status: str = STATUS_NEW
 
     @property
     def filename(self) -> str:
         return self.source_path.name
+
+    @property
+    def status_label(self) -> str:
+        return _STATUS_LABELS.get(self.status, self.status)
+
+    @property
+    def is_in_library(self) -> bool:
+        return self.status != STATUS_NEW
 
     @property
     def source_label(self) -> str:
@@ -57,36 +79,53 @@ def scan_sources(
     library_mods_dir: Path | None,
     icon_cache_dir: Path | None = None,
 ) -> list[PendingMod]:
-    """Return the mods found in ``source_dirs`` that aren't in the library yet.
+    """Return every mod found in ``source_dirs``, tagged with its library status.
 
-    A zip is considered "already imported" when a file of the same name exists
-    in ``library_mods_dir``. When the same filename appears in several source
-    folders, only the first occurrence (in ``source_dirs`` order) is kept.
+    Each zip is classified relative to the library by **filename + size**:
+    :data:`STATUS_NEW` (absent), :data:`STATUS_UPDATE` (present, different size)
+    or :data:`STATUS_DUPLICATE` (present, same size → already imported). Showing
+    duplicates — rather than hiding them — lets the user clean up the download
+    folder or (re)classify a mod that's already in the library. When the same
+    filename appears in several source folders, only the first occurrence (in
+    ``source_dirs`` order) is kept.
 
     ``icon_cache_dir`` — when provided — is where thumbnails are extracted, so
     the gallery can show them; pass the library's ``cache/icons`` dir to reuse
-    the same cache after import.
+    the same cache after import. Results are ordered new → update → duplicate,
+    then alphabetically.
     """
     if icon_cache_dir is not None:
         icon_cache_dir.mkdir(parents=True, exist_ok=True)
 
-    existing: set[str] = set()
+    existing: dict[str, int] = {}
     if library_mods_dir is not None and library_mods_dir.is_dir():
-        existing = {
-            p.name for p in library_mods_dir.iterdir()
-            if p.is_file() and p.suffix.lower() == ".zip"
-        }
+        for p in library_mods_dir.iterdir():
+            if p.is_file() and p.suffix.lower() == ".zip":
+                try:
+                    existing[p.name] = p.stat().st_size
+                except OSError:
+                    existing[p.name] = -1
 
     pending: list[PendingMod] = []
     seen: set[str] = set()
     for folder in source_dirs:
-        for zip_path in sorted(_list_zip_files(folder), key=lambda p: p.name.lower()):
+        for zip_path in _list_zip_files(folder):
             name = zip_path.name
-            if name in existing or name in seen:
+            if name in seen:
                 continue
             seen.add(name)
+            if name not in existing:
+                status = STATUS_NEW
+            else:
+                try:
+                    size = zip_path.stat().st_size
+                except OSError:
+                    size = -1
+                status = STATUS_DUPLICATE if size == existing[name] else STATUS_UPDATE
             entry = _read_moddesc_from_zip(zip_path, icon_cache_dir=icon_cache_dir)
-            pending.append(PendingMod(source_path=zip_path, entry=entry))
+            pending.append(PendingMod(source_path=zip_path, entry=entry, status=status))
+
+    pending.sort(key=lambda pm: (_STATUS_RANK.get(pm.status, 9), pm.filename.lower()))
     return pending
 
 

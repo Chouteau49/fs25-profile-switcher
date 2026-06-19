@@ -12,7 +12,7 @@ so the caller can move the zips into the library and wire up the assignments.
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QBrush, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -28,7 +28,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..profiles.inbox import PendingMod
+from ..profiles.inbox import (
+    STATUS_DUPLICATE,
+    STATUS_NEW,
+    STATUS_UPDATE,
+    PendingMod,
+)
 from ..state import AppState, ImportPlan
 
 _ROLE_PENDING = int(Qt.ItemDataRole.UserRole)
@@ -158,13 +163,21 @@ class NewModsDialog(QDialog):
         self._assign.clear()
         for pm in pending:
             entry = pm.entry
-            item = QListWidgetItem(self._card_text(pm, checked=False))
+            # New mods and updates are worth importing → checked by default.
+            # Already-in-library duplicates start unchecked (the user may just
+            # want to clean up the download or classify them).
+            default_checked = pm.status != STATUS_DUPLICATE
+            item = QListWidgetItem(self._card_text(pm, checked=default_checked))
             item.setData(_ROLE_PENDING, pm)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setCheckState(
+                Qt.CheckState.Checked if default_checked else Qt.CheckState.Unchecked
+            )
             icon = self._thumb_icon(entry.icon_cache_path if entry else None)
             if icon is not None:
                 item.setIcon(icon)
+            if pm.status == STATUS_DUPLICATE:
+                item.setForeground(QBrush(QColor("#999")))
             badge = "🗺 " if (entry and entry.is_map) else ""
             cat = entry.category if entry else ""
             ver = (
@@ -173,7 +186,8 @@ class NewModsDialog(QDialog):
                 else ""
             )
             item.setToolTip(
-                f"{badge}{pm.filename}\n{cat}{ver}\nSource : {pm.source_label}"
+                f"{badge}{pm.filename}\n{cat}{ver}\n"
+                f"Statut : {pm.status_label}\nSource : {pm.source_label}"
             )
             self._assign[pm.filename] = {"p": set(), "c": set()}
             self.grid.addItem(item)
@@ -217,6 +231,11 @@ class NewModsDialog(QDialog):
             )
         )
 
+    _STATUS_TAG = {
+        STATUS_UPDATE: "⬆ màj",
+        STATUS_DUPLICATE: "≡ déjà en biblio",
+    }
+
     def _card_text(self, pm: PendingMod, checked: bool) -> str:
         title = pm.entry.display_title if pm.entry else pm.filename
         n = 0
@@ -224,23 +243,30 @@ class NewModsDialog(QDialog):
         if a:
             n = len(a["p"]) + len(a["c"])
         mark = "✓ " if checked else ""
-        suffix = f"  ·  {n} cible(s)" if n else ""
+        tag = self._STATUS_TAG.get(pm.status, "")
+        bits = [b for b in (tag, f"{n} cible(s)" if n else "") if b]
+        suffix = "  ·  " + "  ·  ".join(bits) if bits else ""
         return f"{mark}{title}{suffix}"
 
     def _update_count(self) -> None:
         total = self.grid.count()
-        checked = sum(
-            1
-            for i in range(total)
-            if self.grid.item(i).checkState() == Qt.CheckState.Checked
-        )
+        checked = 0
+        counts = {STATUS_NEW: 0, STATUS_UPDATE: 0, STATUS_DUPLICATE: 0}
+        for i in range(total):
+            item = self.grid.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                checked += 1
+            pm = item.data(_ROLE_PENDING)
+            counts[pm.status] = counts.get(pm.status, 0) + 1
         if total == 0:
             self.count_label.setText(
-                "Aucun nouveau mod trouvé dans les dossiers source."
+                "Aucun mod trouvé dans les dossiers source (Téléchargements + new_mods)."
             )
         else:
             self.count_label.setText(
-                f"{total} nouveau(x) mod(s) — {checked} coché(s) à importer."
+                f"{total} mod(s) — {counts[STATUS_NEW]} nouveau(x), "
+                f"{counts[STATUS_UPDATE]} màj, {counts[STATUS_DUPLICATE]} déjà en "
+                f"bibliothèque — {checked} coché(s) à importer."
             )
         self.import_btn.setEnabled(checked > 0)
 
