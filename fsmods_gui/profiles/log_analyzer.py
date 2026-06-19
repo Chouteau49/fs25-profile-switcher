@@ -53,6 +53,7 @@ class LogIssue:
     mod: str | None = None # mod name if we could attribute it
     line_no: int = 0       # 1-based line where it first appeared
     count: int = 1         # number of identical occurrences
+    callstack: list[str] = field(default_factory=list)  # trimmed traceback lines
 
     @property
     def severity_label(self) -> str:
@@ -113,26 +114,100 @@ def _classify(line_lower: str) -> tuple[str, str]:
     return KIND_OTHER, "Problème signalé par le jeu."
 
 
+# FS prefixes most lines with a timestamp, e.g. "2026-06-19 11:55:37.286 " or a
+# bare "11:55:37.286 ". It's unique per line, so it must be stripped *before*
+# building the dedup key — otherwise identical errors (the per-frame Lua
+# ``update`` crash) never merge and flood the report with thousands of rows.
+_TIMESTAMP_RE = re.compile(
+    r"^\s*(?:\d{4}-\d{2}-\d{2}\s+)?\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\s*"
+)
+
+
+def _strip_timestamp(line: str) -> str:
+    return _TIMESTAMP_RE.sub("", line, count=1)
+
+
 def _strip_marker(line: str) -> str:
-    """Remove a leading ``Error:`` / ``Warning (xxx):`` marker for readability."""
+    """Remove a leading timestamp then an ``Error:`` / ``Warning (xxx):`` marker."""
+    line = _strip_timestamp(line)
     return re.sub(r"^\s*(error|warning)\b\s*(\([^)]*\))?\s*:?\s*", "", line, flags=re.IGNORECASE).strip()
+
+
+# A real FS log entry always starts with a timestamp. Lines that don't (Lua
+# error details, ``LUA call stack`` traceback frames) belong to the preceding
+# entry — that's where the culprit ``.../mods/FS25_Xxx/....lua`` lives.
+_HAS_TIMESTAMP_RE = re.compile(r"^\s*(?:\d{4}-\d{2}-\d{2}\s+)?\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\b")
+
+# Owning mod of a script path, e.g. ".../mods/FS25_Courseplay/scripts/X.lua".
+_MOD_PATH_RE = re.compile(r"[\\/]mods[\\/](FS2[25]_[A-Za-z0-9_]+)", re.IGNORECASE)
+
+
+def _trim_callstack_line(line: str) -> str:
+    """Drop the absolute prefix of a traceback frame for readable display.
+
+    ``C:/.../mods/FS25_Courseplay/scripts/X.lua:370: boom`` becomes
+    ``FS25_Courseplay/scripts/X.lua:370: boom``; base-game frames are kept from
+    their ``dataS/`` root. Otherwise the line is returned trimmed.
+    """
+    s = line.strip().lstrip("=").strip()
+    m = re.search(r"[\\/]mods[\\/](.*)$", s, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m = re.search(r"\b(dataS?[\\/].*)$", s)
+    return m.group(1) if m else s
+
+
+def _attach_continuation(issue: LogIssue, line: str) -> None:
+    """Fold a non-timestamped traceback line into ``issue`` and grab its mod."""
+    issue.callstack.append(_trim_callstack_line(line))
+    if issue.mod is None:
+        m = _MOD_PATH_RE.search(line)
+        if m:
+            issue.mod = m.group(1)
+
+
+def _finalize(issue: LogIssue) -> None:
+    """Fold the captured traceback into the message before de-duplication.
+
+    For a Lua crash the error line itself is generic (``Running LUA method
+    'update'``); the useful part — *which* script failed and why — is the first
+    traceback frame. Appending it both informs the reader and lets thousands of
+    identical per-frame crashes collapse into a single counted row.
+    """
+    if not issue.callstack:
+        return
+    reason = next((c for c in issue.callstack if ".lua" in c.lower()), issue.callstack[0])
+    if reason and reason.lower() not in issue.message_fr.lower():
+        snippet = reason if len(reason) <= 200 else reason[:197] + "…"
+        issue.message_fr = f"{issue.message_fr} — {snippet}"
 
 
 def parse_log_text(text: str) -> list[LogIssue]:
     """Parse raw log text into a de-duplicated list of :class:`LogIssue`.
 
-    Identical (kind, message, mod) issues are merged with a ``count``.
-    Ordered by severity (errors first) then first appearance.
+    Each error/warning entry absorbs the non-timestamped lines that follow it
+    (its Lua traceback), which is how the culprit mod gets attributed. Identical
+    (kind, message, mod) issues are then merged with a ``count``. Ordered by
+    severity (errors first) then first appearance.
     """
-    merged: dict[tuple[str, str, str | None], LogIssue] = {}
-    order: list[tuple[str, str, str | None]] = []
+    raw_issues: list[LogIssue] = []
+    current: LogIssue | None = None  # last error/warning, to attach traceback to
 
     for idx, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.rstrip()
         if not line.strip():
+            current = None  # a blank line ends a traceback block
             continue
+
         severity = _severity_of(line)
         if severity is None:
+            # Not an error/warning announcement. A non-timestamped line here is a
+            # traceback frame of the preceding entry; a timestamped info/data line
+            # ends the block.
+            if current is not None and not _HAS_TIMESTAMP_RE.match(line):
+                _attach_continuation(current, line)
+            else:
+                current = None
             continue
         line_lower = line.lower()
         kind, template = _classify(line_lower)
@@ -146,23 +221,28 @@ def parse_log_text(text: str) -> list[LogIssue]:
             snippet = detail if len(detail) <= 200 else detail[:197] + "…"
             message = f"{template} — {snippet}"
 
-        key = (kind, message, mod)
+        current = LogIssue(
+            severity=severity,
+            kind=kind,
+            message_fr=message,
+            raw=line.strip(),
+            mod=mod,
+            line_no=idx,
+        )
+        raw_issues.append(current)
+
+    merged: dict[tuple[str, str, str | None], LogIssue] = {}
+    order: list[tuple[str, str, str | None]] = []
+    for issue in raw_issues:
+        _finalize(issue)
+        key = (issue.kind, issue.message_fr, issue.mod)
         existing = merged.get(key)
         if existing is None:
-            issue = LogIssue(
-                severity=severity,
-                kind=kind,
-                message_fr=message,
-                raw=line.strip(),
-                mod=mod,
-                line_no=idx,
-            )
             merged[key] = issue
             order.append(key)
         else:
             existing.count += 1
-            # Promote to error if any occurrence is an error.
-            if severity == SEV_ERROR:
+            if issue.severity == SEV_ERROR:
                 existing.severity = SEV_ERROR
 
     issues = [merged[k] for k in order]

@@ -136,7 +136,10 @@ class LogReportDialog(QDialog):
                 item.setBackground(QBrush(bg))
                 item.setForeground(QBrush(fg))
                 if col == 3:
-                    item.setToolTip(issue.raw)
+                    tip = issue.raw
+                    if issue.callstack:
+                        tip += "\n\nPile d'appel :\n" + "\n".join(issue.callstack)
+                    item.setToolTip(tip)
                 self.table.setItem(row, col, item)
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setSectionResizeMode(

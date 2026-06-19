@@ -8,6 +8,14 @@
   - Nouveau module `fsmods_gui/profiles/autodrive.py` (`AutoDrivePack`, `detect_pack`, `scan_packs`, `install_pack`) — sans Qt, testé.
   - Nouvelle vue `fsmods_gui/widgets/autodrive_dialog.py` (`AutoDriveDialog`).
 
+### Changed
+
+- **Analyse du log : attribution du mod fautif via la pile d'appel** : une erreur Lua (`Running LUA method 'update'`) est générique — c'est la **pile d'appel** sur les lignes suivantes (`.../mods/FS25_Xxx/....lua:NNN`) qui nomme le coupable. L'analyseur absorbe désormais ces lignes de continuation (non horodatées) rattachées à l'erreur qui précède, en **extrait le mod** (`FS25_…`) pour remplir la colonne *Mod*, **enrichit le message** avec la localisation `script.lua:ligne` (chemin absolu retiré), et **affiche la pile complète** dans l'infobulle. Bénéfice combiné avec le regroupement : un script qui plante à chaque frame passe de milliers de lignes anonymes à **une seule** ligne comptée et attribuée.
+
+### Fixed
+
+- **Analyse du log : le spam d'erreurs identiques n'était pas regroupé** : les lignes FS commençant par un horodatage (`2026-06-19 11:55:37.286 Error: …`), l'horodatage — unique à chaque ligne — restait dans la clé de fusion. Une erreur Lua qui plante à chaque frame (`Running LUA method 'update'`) produisait donc des milliers de lignes « Occ. 1 » au lieu d'une seule ligne comptée. L'horodatage (date + heure ou heure seule) est désormais retiré avant de construire le message, ce qui restaure le regroupement et nettoie le texte affiché.
+
 ### Build / Release
 
 - Version passée de `0.2.5` à `0.2.6`.

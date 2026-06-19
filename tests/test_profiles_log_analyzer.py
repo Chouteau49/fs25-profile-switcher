@@ -70,6 +70,70 @@ def test_duplicate_lines_are_merged_with_count() -> None:
     assert issues[0].count == 3
 
 
+def test_timestamped_lua_spam_merges_into_one_row() -> None:
+    # FS prefixes each line with a unique timestamp; the per-frame Lua crash must
+    # still collapse into a single counted row rather than thousands.
+    lines = [
+        f"2026-06-19 11:55:{37 + i // 1000}.{i % 1000:03d} "
+        "Error: Running LUA method 'update'.\n"
+        for i in range(50)
+    ]
+    issues = parse_log_text("".join(lines))
+    assert len(issues) == 1
+    assert issues[0].count == 50
+    assert issues[0].kind == KIND_LUA
+    # the timestamp must not leak into the human message
+    assert "2026-06-19" not in issues[0].message_fr
+
+
+def test_bare_time_prefix_is_stripped() -> None:
+    text = "11:53:10.632 Error: Startup with port while already running\n"
+    issues = parse_log_text(text)
+    assert len(issues) == 1
+    assert "11:53:10" not in issues[0].message_fr
+
+
+def test_lua_callstack_attributes_culprit_mod() -> None:
+    # Real-world shape: a generic "Running LUA method 'update'" error followed by
+    # a non-timestamped traceback line naming the failing script, repeated every
+    # frame. Must collapse into ONE row attributed to FS25_Courseplay.
+    block = (
+        "2026-06-19 11:55:37.286 Error: Running LUA method 'update'.\n"
+        "C:/Users/x/mods/FS25_Courseplay/scripts/specializations/CpCourseManager.lua:370: "
+        "attempt to index nil with 'delete'\n"
+    )
+    issues = parse_log_text(block * 200)
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.count == 200
+    assert issue.kind == KIND_LUA
+    assert issue.mod == "FS25_Courseplay"
+    assert "CpCourseManager.lua:370" in issue.message_fr
+    # the absolute path prefix is trimmed away
+    assert "C:/Users" not in issue.message_fr
+    assert issue.callstack  # traceback captured
+
+
+def test_basegame_callstack_captured_without_mod() -> None:
+    block = (
+        "11:55:00 Error: Running LUA method 'update'.\n"
+        "  dataS/scripts/vehicles/Motorized.lua:120: something nil\n"
+    )
+    issues = parse_log_text(block)
+    assert len(issues) == 1
+    assert issues[0].mod is None
+    assert any("Motorized.lua" in c for c in issues[0].callstack)
+
+
+def test_continuation_without_preceding_error_is_ignored() -> None:
+    # Boot lines have no timestamp and no preceding kept error -> not attached.
+    text = (
+        "Available mod: (Hash: abc) (Version: 1.0) FS25_Foo\n"
+        "  CPU: some cpu\n"
+    )
+    assert parse_log_text(text) == []
+
+
 def test_errors_sorted_before_warnings() -> None:
     text = "Warning: minor\nError: Running LUA method 'x'.\n"
     issues = parse_log_text(text)
