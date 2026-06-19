@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.3] - 2026-06-19
+
+### Added
+
+- **Vue galerie de la bibliothèque** : nouveau bouton de bascule (☰ tableau / ▦ galerie) dans la barre d'outils de la bibliothèque. La vue galerie affiche les mods sous forme de grandes vignettes type ModHub (icône + titre + catégorie · version), avec états survol/sélection. Nouveau `ModCardDelegate` rendant chaque mod dans un `QListView` partageant le même modèle/proxy que le tableau : recherche, filtres (catégorie, marque, type, profil), tri, sélection multiple, double-clic et menu contextuel fonctionnent à l'identique dans les deux vues. Disponible partout où la bibliothèque est réutilisée (éditeur de profil, gestionnaire de collections).
+
+### Build / Release
+
+- Version passée de `0.2.2` à `0.2.3`.
+
 ## [0.2.2] - 2026-06-10
 
 ### Added
