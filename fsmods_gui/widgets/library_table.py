@@ -344,6 +344,7 @@ class LibraryTable(QWidget):
     selection_changed = Signal(list)  # list[CatalogEntry]
     entry_double_clicked = Signal(object)  # CatalogEntry
     add_to_collection = Signal(list)  # list[CatalogEntry]
+    delete_requested = Signal(list)  # list[CatalogEntry] — remove from the library
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -636,18 +637,31 @@ class LibraryTable(QWidget):
             add_coll.triggered.connect(self._emit_add_to_collection)
             menu.addAction(add_coll)
             menu.addSeparator()
+            delete_act = QAction("🗑 Supprimer de la bibliothèque…", self)
+            delete_act.triggered.connect(self._emit_delete)
+            menu.addAction(delete_act)
+            menu.addSeparator()
 
         menu.addAction(self.select_all_action)
         menu.exec_(view.viewport().mapToGlobal(pos))
 
-    def _emit_add_to_collection(self) -> None:
+    def _current_entries(self) -> list[CatalogEntry]:
         entries = self.selected_entries()
         if not entries:
             entry = self.selected_entry()
             if entry is not None:
                 entries = [entry]
+        return entries
+
+    def _emit_add_to_collection(self) -> None:
+        entries = self._current_entries()
         if entries:
             self.add_to_collection.emit(entries)
+
+    def _emit_delete(self) -> None:
+        entries = self._current_entries()
+        if entries:
+            self.delete_requested.emit(entries)
 
     def _show_details(self, proxy_idx: QModelIndex) -> None:
         source_idx = self.proxy.mapToSource(proxy_idx)

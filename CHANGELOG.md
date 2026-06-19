@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.2.4] - 2026-06-19
+
+### Changed
+
+- **Interface unifiée à une seule fenêtre (fin du dialogue modal des collections)** : les collections se gèrent désormais dans la fenêtre principale, plus dans une fenêtre séparée. La barre latérale gauche liste maintenant **Profils** *et* **🗂️ Collections** (chacune avec ➕ Nouvelle / 🗐 Dupliquer / ✖ Supprimer). Sélectionner un profil ou une collection l'ouvre dans le **même éditeur** à droite.
+- **Éditeur unifié profil/collection avec « plans » (bascule Contenu ↔ Bibliothèque)** : au lieu de juxtaposer bibliothèque et contenu, l'éditeur affiche une page à la fois via un commutateur **📦 Contenu** / **➕ Bibliothèque**. La page *Bibliothèque* sert à ajouter des mods à la cible courante ; la page *Contenu* montre les mods de la cible. Un profil garde sa carte et sa liste de collections héritées ; une collection les masque.
+
+### Added
+
+- **Vue galerie pour le contenu d'un profil/d'une collection** : le panneau « Contenu » dispose de sa propre bascule (☰ liste / ▦ galerie). En galerie, chaque mod est une grande vignette type ModHub (icône + titre + catégorie · version) — bien plus facile à identifier qu'une liste de noms de fichiers. Badges visuels : 🗺 carte, 🔗 hérité d'une collection (cadre bleu), 🚫 exclu (barré/estompé), ⚠ absent de la bibliothèque (cadre rouge). Nouveau `fsmods_gui/widgets/mod_gallery.py` (`ModListModel` + `ContentCardDelegate` + `ModContentPanel`), réutilisable pour les deux types de cible.
+- **Supprimer un mod de la bibliothèque** : clic droit sur un mod (ou une sélection) dans la bibliothèque → « 🗑 Supprimer de la bibliothèque… ». Après confirmation, le(s) fichier(s) `.zip` (et l'icône en cache) sont effacés du disque, retirés du catalogue, et **délié en cascade** de tous les profils (mods propres, carte, exclusions) et collections qui les référençaient — chaque profil/collection modifié est ré-enregistré, et un rapport liste ce qui a été touché. Logique dans `AppState.delete_mods()` (`DeleteModsResult`).
+
+### Fixed
+
+- **Vignettes manquantes dans la bibliothèque** : ~185 mods (sur 912) n'affichaient pas leur icône à cause d'un **cache d'index périmé** — leur icône avait échoué lors d'un ancien scan et n'était jamais réextraite (le `.zip` n'ayant pas changé). Le cache est désormais **auto-réparant** : à chaque scan, une entrée qui déclare une icône mais n'a pas de vignette valide est réextraite sans re-parser tout le `modDesc.xml`. La recherche d'icône gère aussi le cas où l'icône est rangée dans un **sous-dossier** du zip (recherche par nom de base, en plus du chemin exact et du swap d'extension `.png`↔`.dds`).
+
+### Removed
+
+- `fsmods_gui/widgets/profile_editor.py` et `fsmods_gui/widgets/collections_manager.py` : fusionnés dans le nouvel éditeur unifié `fsmods_gui/widgets/editor_panel.py`. Le bouton de barre d'outils « 🗂️ Collections » disparaît (remplacé par la liste latérale).
+
+### Build / Release
+
+- Version passée de `0.2.3` à `0.2.4`.
+
 ## [0.2.3] - 2026-06-19
 
 ### Added

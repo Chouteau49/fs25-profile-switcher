@@ -119,6 +119,63 @@ def _load_cache(cache_path: Path) -> dict[str, CatalogEntry]:
     return out
 
 
+_ICON_EXTS = (".dds", ".png", ".jpg", ".jpeg")
+
+
+def _extract_icon(
+    zf: zipfile.ZipFile, icon: str, zip_stem: str, icon_cache_dir: Path
+) -> str | None:
+    """Extract a mod's ``iconFilename`` from ``zf`` into the icon cache.
+
+    Returns the cached file path, or ``None`` when the icon can't be located or
+    decoded. Tolerant of the usual Farming Simulator quirks: case differences,
+    an extension in ``modDesc`` that doesn't match the stored file (``.png`` vs
+    ``.dds``), and icons tucked away in a sub-folder of the zip.
+    """
+    try:
+        icon_rel = icon.replace("\\", "/").strip().lstrip("/")
+        if icon_rel.startswith("../") or ":" in icon_rel:
+            return None
+        icon_ext = Path(icon_rel).suffix.lower()
+        target_ext = ".png" if HAS_PILLOW else (icon_ext or ".dds")
+        target_path = icon_cache_dir / f"{zip_stem}{target_ext}"
+
+        zip_names = {n.lower(): n for n in zf.namelist()}
+        stem = Path(icon_rel).stem.lower()
+
+        # 1. Exact path match (case-insensitive).
+        real_name = zip_names.get(icon_rel.lower())
+        # 2. Same path, swapped extension (icon.png declared, icon.dds stored).
+        if not real_name:
+            base_rel = icon_rel.rsplit(".", 1)[0].lower()
+            for ext in _ICON_EXTS:
+                if (alt := f"{base_rel}{ext}") in zip_names:
+                    real_name = zip_names[alt]
+                    break
+        # 3. Same basename anywhere in the zip (icon lives in a sub-folder).
+        if not real_name:
+            for low, orig in zip_names.items():
+                pp = Path(low)
+                if pp.stem == stem and pp.suffix in _ICON_EXTS:
+                    real_name = orig
+                    break
+        if not real_name:
+            return None
+
+        with zf.open(real_name) as src:
+            if HAS_PILLOW:
+                with Image.open(src) as img:
+                    if img.mode != "RGBA":
+                        img = img.convert("RGBA")
+                    img.save(target_path, "PNG")
+            else:
+                with open(target_path, "wb") as dst:
+                    dst.write(src.read())
+        return str(target_path)
+    except Exception:
+        return None
+
+
 def _read_moddesc_from_zip(zip_path: Path, icon_cache_dir: Path | None = None) -> CatalogEntry:
     stat = zip_path.stat()
     base = CatalogEntry(
@@ -255,43 +312,9 @@ def _read_moddesc_from_zip(zip_path: Path, icon_cache_dir: Path | None = None) -
 
             # ---- Extract icon if requested
             if icon and icon_cache_dir:
-                try:
-                    icon_rel = icon.replace("\\", "/").strip().lstrip("/")
-                    if not (icon_rel.startswith("../") or ":" in icon_rel):
-                        icon_ext = Path(icon_rel).suffix.lower()
-                        target_ext = ".png" if HAS_PILLOW else icon_ext
-                        target_path = icon_cache_dir / f"{zip_path.stem}{target_ext}"
-                        
-                        # Try to find the file (handling case sensitivity and common extensions)
-                        zip_names = {n.lower(): n for n in zf.namelist()}
-                        
-                        # 1. Try exact match (case insensitive)
-                        real_name = zip_names.get(icon_rel.lower())
-                        
-                        # 2. Try swapping common extensions if not found (e.g. icon.png -> icon.dds)
-                        if not real_name:
-                            stem = Path(icon_rel).stem.lower()
-                            for ext in (".dds", ".png", ".jpg", ".jpeg"):
-                                if (alt := f"{stem}{ext}") in zip_names:
-                                    real_name = zip_names[alt]
-                                    break
-                        
-                        if real_name:
-                            try:
-                                with zf.open(real_name) as src:
-                                    if HAS_PILLOW:
-                                        with Image.open(src) as img:
-                                            if img.mode != "RGBA":
-                                                img = img.convert("RGBA")
-                                            img.save(target_path, "PNG")
-                                    else:
-                                        with open(target_path, "wb") as dst:
-                                            dst.write(src.read())
-                                base.icon_cache_path = str(target_path)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
+                base.icon_cache_path = _extract_icon(
+                    zf, icon, zip_path.stem, icon_cache_dir
+                )
 
     except (zipfile.BadZipFile, OSError) as exc:
         base.error = f"zip illisible : {exc}"
@@ -343,6 +366,24 @@ def scan_library(
             and prior.size_bytes == stat.st_size
             and prior.mtime_ns == stat.st_mtime_ns
         ):
+            # Self-heal a stale cache: an entry may declare an icon but have no
+            # (or a vanished) cached thumbnail because extraction failed in an
+            # older run. Re-extract just the icon without re-parsing modDesc.
+            if (
+                icon_cache_dir is not None
+                and prior.icon_filename
+                and (
+                    not prior.icon_cache_path
+                    or not Path(prior.icon_cache_path).is_file()
+                )
+            ):
+                try:
+                    with zipfile.ZipFile(zip_path) as zf:
+                        prior.icon_cache_path = _extract_icon(
+                            zf, prior.icon_filename, zip_path.stem, icon_cache_dir
+                        )
+                except (zipfile.BadZipFile, OSError):
+                    pass
             fresh[zip_path.name] = prior
             continue
         fresh[zip_path.name] = _read_moddesc_from_zip(zip_path, icon_cache_dir=icon_cache_dir)

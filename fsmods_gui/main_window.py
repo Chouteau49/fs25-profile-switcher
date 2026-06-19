@@ -36,7 +36,7 @@ from .profiles.sync_back import (
     snapshot_hashes,
 )
 from .state import AppState
-from .widgets.profile_editor import ProfileEditor
+from .widgets.editor_panel import EditorPanel
 from .widgets.sync_dialog import (
     ADD_IGNORE,
     ADD_LIB_AND_PROFILE,
@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"FS Profile Switcher v{__version__} — {state.game_key}")
         self.resize(1200, 720)
 
-        # ---- left: profile list + buttons
+        # ---- left: profile list + collection list + buttons
         self.profile_list = QListWidget(self)
         self.profile_list.currentRowChanged.connect(self._on_profile_row_changed)
 
@@ -67,6 +67,15 @@ class MainWindow(QMainWindow):
         dup_btn.clicked.connect(self._on_duplicate_profile)
         del_btn.clicked.connect(self._on_delete_profile)
 
+        self.collection_list = QListWidget(self)
+        self.collection_list.currentRowChanged.connect(self._on_collection_row_changed)
+        cnew_btn = QPushButton("➕ Nouvelle", self)
+        cdup_btn = QPushButton("🗐 Dupliquer", self)
+        cdel_btn = QPushButton("✖ Supprimer", self)
+        cnew_btn.clicked.connect(self._on_new_collection)
+        cdup_btn.clicked.connect(self._on_duplicate_collection)
+        cdel_btn.clicked.connect(self._on_delete_collection)
+
         left_panel = QWidget(self)
         left_layout = QVBoxLayout(left_panel)
         self._left_version_label = QLabel(f"FS Profile Switcher v{__version__}", left_panel)
@@ -75,16 +84,24 @@ class MainWindow(QMainWindow):
         )
         left_layout.addWidget(self._left_version_label)
         left_layout.addWidget(QLabel("Profils", left_panel))
-        left_layout.addWidget(self.profile_list, 1)
+        left_layout.addWidget(self.profile_list, 2)
         btn_row = QHBoxLayout()
         btn_row.addWidget(new_btn)
         btn_row.addWidget(dup_btn)
         btn_row.addWidget(del_btn)
         left_layout.addLayout(btn_row)
+        left_layout.addWidget(QLabel("🗂️ Collections", left_panel))
+        left_layout.addWidget(self.collection_list, 1)
+        cbtn_row = QHBoxLayout()
+        cbtn_row.addWidget(cnew_btn)
+        cbtn_row.addWidget(cdup_btn)
+        cbtn_row.addWidget(cdel_btn)
+        left_layout.addLayout(cbtn_row)
 
-        # ---- right: editor + activate
-        self.editor = ProfileEditor(self)
-        self.editor.changed.connect(self._on_profile_changed)
+        # ---- right: unified editor (profile or collection) + activate
+        self.editor = EditorPanel(self)
+        self.editor.changed.connect(self._on_editor_changed)
+        self.editor.mod_delete_requested.connect(self._on_delete_mods)
 
         self.activate_btn = QPushButton("  Activer & lancer", self)
         self.activate_btn.setMinimumHeight(50)
@@ -132,9 +149,6 @@ class MainWindow(QMainWindow):
         dup_action = QAction("🧬 Doublons", self)
         dup_action.triggered.connect(self._on_show_duplicates)
         toolbar.addAction(dup_action)
-        collections_action = QAction("🗂️ Collections", self)
-        collections_action.triggered.connect(self._on_manage_collections)
-        toolbar.addAction(collections_action)
         stats_action = QAction("📊 Statistiques", self)
         stats_action.triggered.connect(self._on_show_stats)
         toolbar.addAction(stats_action)
@@ -185,7 +199,7 @@ class MainWindow(QMainWindow):
         self.profile_list.clear()
         for prof in self.state.profiles:
             item = QListWidgetItem(prof.name)
-            
+
             # Map icon decoration
             if prof.map_mod and self.state.catalog:
                 entry = self.state.catalog.entries.get(prof.map_mod)
@@ -193,7 +207,7 @@ class MainWindow(QMainWindow):
                     pix = QPixmap(entry.icon_cache_path)
                     if not pix.isNull():
                         item.setIcon(QIcon(pix))
-            
+
             item.setData(Qt.ItemDataRole.UserRole, prof.slug)
             self.profile_list.addItem(item)
         self.profile_list.blockSignals(False)
@@ -201,17 +215,50 @@ class MainWindow(QMainWindow):
             slug = self.state.current_profile.slug
             for i in range(self.profile_list.count()):
                 if self.profile_list.item(i).data(Qt.ItemDataRole.UserRole) == slug:
+                    self.profile_list.blockSignals(True)
                     self.profile_list.setCurrentRow(i)
+                    self.profile_list.blockSignals(False)
                     break
-        self.editor.set_profile(self.state.current_profile)
+            self._select_profile(self.state.current_profile)
+        else:
+            self.editor.set_target(None)
+
+    def _refresh_collections_ui(self) -> None:
+        self.collection_list.blockSignals(True)
+        self.collection_list.clear()
+        for col in self.state.collections:
+            item = QListWidgetItem(f"{col.name}  ({len(col.mods)})")
+            item.setData(Qt.ItemDataRole.UserRole, col.slug)
+            self.collection_list.addItem(item)
+        self.collection_list.blockSignals(False)
+
+    # ---- active-target selection (mutually exclusive between the two lists)
+
+    def _select_profile(self, prof) -> None:
+        self.collection_list.blockSignals(True)
+        self.collection_list.setCurrentRow(-1)
+        self.collection_list.blockSignals(False)
+        self.state.current_profile = prof
+        self.editor.set_target(prof)
+        self.activate_btn.setEnabled(True)
+        self._update_activate_btn_icon()
+
+    def _select_collection(self, col) -> None:
+        self.profile_list.blockSignals(True)
+        self.profile_list.setCurrentRow(-1)
+        self.profile_list.blockSignals(False)
+        self.editor.set_target(col)
+        self.activate_btn.setEnabled(False)
 
     def _on_profile_row_changed(self, row: int) -> None:
         if row < 0 or row >= len(self.state.profiles):
-            self.state.current_profile = None
-        else:
-            self.state.current_profile = self.state.profiles[row]
-        self.editor.set_profile(self.state.current_profile)
-        self._update_activate_btn_icon()
+            return
+        self._select_profile(self.state.profiles[row])
+
+    def _on_collection_row_changed(self, row: int) -> None:
+        if row < 0 or row >= len(self.state.collections):
+            return
+        self._select_collection(self.state.collections[row])
 
     def _update_activate_btn_icon(self) -> None:
         prof = self.state.current_profile
@@ -277,17 +324,161 @@ class MainWindow(QMainWindow):
         self._refresh_profiles_ui()
         self.state.backup_config()
 
-    def _on_profile_changed(self) -> None:
+    def _on_editor_changed(self) -> None:
+        target = self.editor.current_target()
+        if target is None:
+            return
+        from .profiles.collection import Collection
+
+        if isinstance(target, Collection):
+            target.save()
+            row = self.collection_list.currentRow()
+            if row >= 0:
+                self.collection_list.item(row).setText(
+                    f"{target.name}  ({len(target.mods)})"
+                )
+            # Inherited-collection counts in the editor may need refreshing.
+            self.editor.set_collections(self.state.collections)
+            self.state.backup_config()
+            self._status(f"Collection enregistrée : {target.name}")
+            return
+
+        # Profile
         path = self.state.save_current()
         if path is None:
             return
-        # Sync the visible name in the list if it changed.
-        if self.state.current_profile is not None:
-            row = self.profile_list.currentRow()
-            if row >= 0:
-                self.profile_list.item(row).setText(self.state.current_profile.name)
+        row = self.profile_list.currentRow()
+        if row >= 0:
+            self.profile_list.item(row).setText(target.name)
+        self._update_activate_btn_icon()
         self.state.backup_config()
         self._status(f"Profil enregistré : {path.name}")
+
+    # ========================================================== collections
+
+    def _on_new_collection(self) -> None:
+        name, ok = QInputDialog.getText(self, "Nouvelle collection", "Nom :")
+        if not ok or not name.strip():
+            return
+        try:
+            col = self.state.new_collection(name.strip())
+        except (FileExistsError, ValueError) as exc:
+            QMessageBox.warning(self, "Création impossible", str(exc))
+            return
+        self.editor.set_collections(self.state.collections)
+        self._refresh_collections_ui()
+        self._select_collection_slug(col.slug)
+        self.state.backup_config()
+
+    def _on_duplicate_collection(self) -> None:
+        src = self._current_collection()
+        if src is None:
+            return
+        name, ok = QInputDialog.getText(
+            self, "Dupliquer", "Nom :", text=f"{src.name} (copie)"
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            new = self.state.new_collection(name.strip())
+        except (FileExistsError, ValueError) as exc:
+            QMessageBox.warning(self, "Création impossible", str(exc))
+            return
+        new.mods = list(src.mods)
+        new.description = src.description
+        new.save()
+        self.editor.set_collections(self.state.collections)
+        self._refresh_collections_ui()
+        self._select_collection_slug(new.slug)
+        self.state.backup_config()
+
+    def _on_delete_collection(self) -> None:
+        col = self._current_collection()
+        if col is None:
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Supprimer",
+            f"Supprimer la collection « {col.name} » ?\n"
+            f"Elle sera retirée des profils qui l'utilisent.",
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        affected = self.state.delete_collection(col)
+        self.editor.set_collections(self.state.collections)
+        self.editor.set_target(None)
+        self._refresh_collections_ui()
+        self.state.backup_config()
+        if affected:
+            QMessageBox.information(
+                self,
+                "Collection supprimée",
+                "Retirée des profils : " + ", ".join(affected),
+            )
+
+    def _current_collection(self):
+        row = self.collection_list.currentRow()
+        if 0 <= row < len(self.state.collections):
+            return self.state.collections[row]
+        return None
+
+    def _select_collection_slug(self, slug: str) -> None:
+        for i in range(self.collection_list.count()):
+            if self.collection_list.item(i).data(Qt.ItemDataRole.UserRole) == slug:
+                self.collection_list.setCurrentRow(i)
+                return
+
+    # ===================================================== delete from library
+
+    def _on_delete_mods(self, entries: list) -> None:
+        if not entries:
+            return
+        if self.state.catalog is None:
+            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
+            return
+        names = [e.filename for e in entries]
+        preview = "\n".join(
+            f"• {e.display_title} ({e.filename})" for e in entries[:12]
+        )
+        extra = f"\n… (+{len(entries) - 12} autres)" if len(entries) > 12 else ""
+        confirm = QMessageBox.question(
+            self,
+            "Supprimer de la bibliothèque",
+            f"Supprimer définitivement {len(entries)} mod(s) ?\n\n{preview}{extra}\n\n"
+            "Le(s) fichier(s) .zip seront effacés du disque et retirés de tous les "
+            "profils et collections.\nCette action est irréversible.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        target = self.editor.current_target()
+        result = self.state.delete_mods(names)
+
+        # Refresh everything that referenced the catalog / mod lists.
+        self.editor.set_catalog(self.state.catalog)
+        self.editor.set_collections(self.state.collections)
+        self._refresh_collections_ui()
+        self._refresh_profiles_ui()
+        # Re-apply the active target (a collection selection is lost above).
+        from .profiles.collection import Collection
+
+        if isinstance(target, Collection):
+            self._select_collection_slug(target.slug)
+        elif target is not None:
+            self.editor.set_target(target)
+        self.state.backup_config()
+
+        msg = f"{len(result.removed_files)} fichier(s) supprimé(s)."
+        if result.affected_profiles:
+            msg += "\nProfils mis à jour : " + ", ".join(result.affected_profiles)
+        if result.affected_collections:
+            msg += "\nCollections mises à jour : " + ", ".join(
+                result.affected_collections
+            )
+        self._status(f"{len(result.removed_files)} mod(s) supprimé(s).")
+        QMessageBox.information(self, "Suppression terminée", msg)
 
     # ============================================================= scan
 
@@ -322,6 +513,7 @@ class MainWindow(QMainWindow):
         self.editor.set_catalog(catalog)
         self.state.refresh_collections()
         self.editor.set_collections(self.state.collections)
+        self._refresh_collections_ui()
         self.state.refresh_profiles()
         self._refresh_profiles_ui()
         self._status(f"Bibliothèque : {len(catalog)} mods")
@@ -350,18 +542,6 @@ class MainWindow(QMainWindow):
         StatsDashboardDialog(
             self.state.catalog, self.state.profiles, self.state.collections, self
         ).exec()
-
-    def _on_manage_collections(self) -> None:
-        if self.state.catalog is None:
-            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
-            return
-        from .widgets.collections_manager import CollectionsManagerDialog
-
-        CollectionsManagerDialog(self.state, self).exec()
-        # Collections may have been added/removed/edited — re-sync the editor.
-        self.editor.set_collections(self.state.collections)
-        self.editor.set_profile(self.state.current_profile)
-        self.state.backup_config()
 
     # =================================================== config backup (#4)
 
@@ -447,6 +627,7 @@ class MainWindow(QMainWindow):
         # Reload everything from disk and refresh the UI.
         self.state.refresh_collections()
         self.editor.set_collections(self.state.collections)
+        self._refresh_collections_ui()
         self.state.refresh_profiles()
         self._refresh_profiles_ui()
         self.state.backup_config()
@@ -525,7 +706,7 @@ class MainWindow(QMainWindow):
                 changed = True
         if changed:
             profile.save()
-            self.editor.set_profile(profile)
+            self.editor.set_target(profile)
             self.state.backup_config()
             self._status(
                 f"Profil mis à jour après audit : "
@@ -725,7 +906,7 @@ class MainWindow(QMainWindow):
         
         if changed:
             profile.save()
-            self.editor.set_profile(profile)
+            self.editor.set_target(profile)
             self.state.backup_config()
             self._status("Profil mis à jour après synchronisation.")
         if errors:

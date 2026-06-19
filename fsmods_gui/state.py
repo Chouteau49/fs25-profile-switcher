@@ -5,6 +5,7 @@ depend on PySide6.
 """
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,6 +17,15 @@ from .profiles.collection import (
     list_collections,
 )
 from .profiles.profile import Profile, list_profiles, profile_path_for
+
+
+@dataclass
+class DeleteModsResult:
+    """Outcome of :meth:`AppState.delete_mods` (for the GUI to report)."""
+
+    removed_files: list[str] = field(default_factory=list)
+    affected_profiles: list[str] = field(default_factory=list)
+    affected_collections: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -80,6 +90,65 @@ class AppState:
                 prof.save()
                 affected.append(prof.name)
         return affected
+
+    def delete_mods(self, filenames: list[str]) -> DeleteModsResult:
+        """Permanently delete mods from the library and unlink them everywhere.
+
+        Removes each ``.zip`` from the library mods dir (and its cached icon),
+        drops it from the catalog, and strips it from every profile (own mods,
+        map, exclusions) and collection that referenced it. Changed profiles and
+        collections are saved; the catalog cache is rewritten. Returns a report.
+        """
+        fnset = {f for f in filenames if f}
+        result = DeleteModsResult()
+        if not fnset:
+            return result
+
+        game = self.game
+        mods_dir = game.library_mods_dir
+
+        for fname in fnset:
+            entry = self.catalog.get(fname) if self.catalog else None
+            if entry and entry.icon_cache_path:
+                with contextlib.suppress(OSError):
+                    Path(entry.icon_cache_path).unlink(missing_ok=True)
+            if mods_dir is not None:
+                zip_path = mods_dir / fname
+                with contextlib.suppress(OSError):
+                    if zip_path.is_file():
+                        zip_path.unlink()
+                        result.removed_files.append(fname)
+            if self.catalog is not None:
+                self.catalog.entries.pop(fname, None)
+
+        for prof in self.profiles:
+            changed = False
+            if prof.map_mod in fnset:
+                prof.map_mod = None
+                changed = True
+            new_mods = [m for m in prof.mods if m not in fnset]
+            if len(new_mods) != len(prof.mods):
+                prof.mods = new_mods
+                changed = True
+            new_excl = [m for m in prof.excluded_mods if m not in fnset]
+            if len(new_excl) != len(prof.excluded_mods):
+                prof.excluded_mods = new_excl
+                changed = True
+            if changed:
+                prof.save()
+                result.affected_profiles.append(prof.name)
+
+        for col in self.collections:
+            new = [m for m in col.mods if m not in fnset]
+            if len(new) != len(col.mods):
+                col.mods = new
+                col.save()
+                result.affected_collections.append(col.name)
+
+        if self.catalog is not None and game.library_cache_dir is not None:
+            self.catalog.save_cache(game.library_cache_dir / "index.json")
+
+        return result
 
     def refresh_catalog(self) -> Catalog:
         game = self.game
