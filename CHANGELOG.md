@@ -2,6 +2,10 @@
 
 ## [0.2.7] - 2026-06-20
 
+### Added
+
+- **« Nouveaux mods » : supprimer un téléchargement depuis la vue** : maintenant que les mods déjà importés s'affichent, on peut nettoyer le dossier de téléchargement sans quitter l'app. Bouton « 🗑 Supprimer le téléchargement » (et clic droit « 🗑 Supprimer le fichier téléchargé… ») sur la sélection : après confirmation, le(s) `.zip` sont effacés de **leur dossier source** (Téléchargements / `new_mods`) et retirés de la liste. **N'affecte pas la bibliothèque** — les mods déjà importés y restent. Helper `delete_source()` dans `fsmods_gui/profiles/inbox.py`.
+
 ### Changed
 
 - **« Nouveaux mods » : import en place sans fermer la fenêtre** : le bouton « 📥 Importer les mods cochés » importait puis **fermait** la vue, obligeant à la rouvrir pour traiter le reste. L'import se fait désormais **en place** : les mods cochés sont importés, leurs vignettes **retirées de la liste**, et les mods restants (avec leurs cases et leur classement déjà choisis) sont **conservés** — la fenêtre reste ouverte jusqu'à « Fermer ». Un message confirme chaque import sous la liste. Nouveau signal `import_requested` + `remove_imported()` / `flash_status()` côté vue, handler `_apply_new_mods_import()` côté fenêtre principale.

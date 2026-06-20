@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -33,6 +35,7 @@ from ..profiles.inbox import (
     STATUS_NEW,
     STATUS_UPDATE,
     PendingMod,
+    delete_source,
 )
 from ..state import AppState, ImportPlan
 
@@ -75,6 +78,8 @@ class NewModsDialog(QDialog):
         self.grid.setUniformItemSizes(True)
         self.grid.itemChanged.connect(self._on_card_changed)
         self.grid.itemSelectionChanged.connect(self._refresh_targets)
+        self.grid.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.grid.customContextMenuRequested.connect(self._on_grid_context_menu)
 
         left = QWidget(self)
         left_l = QVBoxLayout(left)
@@ -93,6 +98,13 @@ class NewModsDialog(QDialog):
         for b in (all_btn, none_btn, check_btn, uncheck_btn):
             sel_row.addWidget(b)
         sel_row.addStretch(1)
+        self.delete_dl_btn = QPushButton("🗑 Supprimer le téléchargement", self)
+        self.delete_dl_btn.setToolTip(
+            "Supprimer le fichier .zip sélectionné de son dossier de téléchargement "
+            "(Téléchargements / new_mods). N'affecte pas la bibliothèque."
+        )
+        self.delete_dl_btn.clicked.connect(self._on_delete_downloads)
+        sel_row.addWidget(self.delete_dl_btn)
         left_l.addLayout(sel_row)
 
         # ---- right: classify panel
@@ -400,6 +412,10 @@ class NewModsDialog(QDialog):
 
     def remove_imported(self, filenames: list[str]) -> None:
         """Drop the rows that were just imported; keep the rest (and their state)."""
+        self._drop_rows(filenames)
+
+    def _drop_rows(self, filenames: list[str]) -> None:
+        """Remove the given rows from the grid, preserving the others' state."""
         fnset = {f for f in filenames if f}
         if not fnset:
             return
@@ -410,6 +426,69 @@ class NewModsDialog(QDialog):
                 self._assign.pop(pm.filename, None)
         self._update_count()
         self._refresh_targets()
+
+    def _on_grid_context_menu(self, pos) -> None:
+        if not self.grid.indexAt(pos).isValid():
+            return
+        # If the clicked card isn't part of the selection, select it alone.
+        clicked = self.grid.itemAt(pos)
+        if clicked is not None and not clicked.isSelected():
+            self.grid.clearSelection()
+            clicked.setSelected(True)
+        menu = QMenu(self)
+        n = len(self._selected_items())
+        act = menu.addAction(
+            f"🗑 Supprimer le téléchargement ({n})"
+            if n > 1
+            else "🗑 Supprimer le fichier téléchargé…"
+        )
+        act.triggered.connect(self._on_delete_downloads)
+        menu.exec(self.grid.viewport().mapToGlobal(pos))
+
+    def _on_delete_downloads(self) -> None:
+        items = self._selected_items()
+        if not items:
+            self.flash_status(
+                "Sélectionne d'abord les mods à supprimer du dossier de "
+                "téléchargement.",
+                error=True,
+            )
+            return
+        pendings = [it.data(_ROLE_PENDING) for it in items]
+        n = len(pendings)
+        preview = "\n".join(
+            f"• {p.filename}  ({p.status_label})" for p in pendings[:12]
+        )
+        extra = f"\n… (+{n - 12} autres)" if n > 12 else ""
+        confirm = QMessageBox.question(
+            self,
+            "Supprimer du dossier de téléchargement",
+            f"Supprimer définitivement {n} fichier(s) .zip de leur dossier source "
+            f"(Téléchargements / new_mods) ?\n\n{preview}{extra}\n\n"
+            "Cela n'affecte PAS la bibliothèque : les mods déjà importés y restent.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        deleted: list[str] = []
+        errors: list[str] = []
+        for p in pendings:
+            try:
+                delete_source(p)
+                deleted.append(p.filename)
+            except OSError as exc:
+                errors.append(f"{p.filename}: {exc}")
+        self._drop_rows(deleted)
+        msg = f"{len(deleted)} fichier(s) supprimé(s) du dossier de téléchargement."
+        self.flash_status(
+            msg + (f"  ⚠ {len(errors)} erreur(s)." if errors else ""),
+            error=bool(errors),
+        )
+        if errors:
+            QMessageBox.warning(
+                self, "Suppression : erreurs", "\n".join(errors[:10])
+            )
 
     def flash_status(self, message: str, *, error: bool = False) -> None:
         color = "#c53030" if error else "#2f855a"

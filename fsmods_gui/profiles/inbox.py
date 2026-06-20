@@ -156,3 +156,14 @@ def import_pending(
             dst, icon_cache_dir=icon_cache_dir
         )
     return dst.name
+
+
+def delete_source(pending: PendingMod) -> None:
+    """Delete the downloaded ``.zip`` from its source folder (Downloads / inbox).
+
+    This only removes the *download*; a copy already imported into the library is
+    untouched. No-op if the file is already gone.
+    """
+    p = pending.source_path
+    if p.is_file():
+        p.unlink()
