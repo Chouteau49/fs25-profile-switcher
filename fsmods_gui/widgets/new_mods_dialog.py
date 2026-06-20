@@ -45,6 +45,7 @@ class NewModsDialog(QDialog):
     """Triage + classify downloaded mods before importing them."""
 
     rescan_requested = Signal()
+    import_requested = Signal(list)  # list[ImportPlan] — handled in place, dialog stays open
 
     def __init__(
         self,
@@ -142,14 +143,23 @@ class NewModsDialog(QDialog):
         )
         rescan_btn.clicked.connect(self.rescan_requested.emit)
         self.import_btn = buttons.addButton(
-            "📥 Importer les mods cochés", QDialogButtonBox.ButtonRole.AcceptRole
+            "📥 Importer les mods cochés", QDialogButtonBox.ButtonRole.ApplyRole
         )
-        self.import_btn.clicked.connect(self._on_accept)
+        self.import_btn.setToolTip(
+            "Importer les mods cochés ; la fenêtre reste ouverte pour continuer "
+            "avec les autres."
+        )
+        self.import_btn.clicked.connect(self._on_import)
         buttons.addButton("Fermer", QDialogButtonBox.ButtonRole.RejectRole)
         buttons.rejected.connect(self.reject)
 
+        self.result_label = QLabel(self)
+        self.result_label.setWordWrap(True)
+        self.result_label.setStyleSheet("QLabel { color: #2f855a; }")
+
         layout = QVBoxLayout(self)
         layout.addWidget(splitter, 1)
+        layout.addWidget(self.result_label)
         layout.addWidget(buttons)
 
         self._populate_targets()
@@ -381,10 +391,30 @@ class NewModsDialog(QDialog):
             self._suppress = False
         self._update_count()
 
-    def _on_accept(self) -> None:
-        if not self.result_plans():
+    def _on_import(self) -> None:
+        """Hand the checked plans to the owner; keep the window open."""
+        plans = self.result_plans()
+        if not plans:
             return
-        self.accept()
+        self.import_requested.emit(plans)
+
+    def remove_imported(self, filenames: list[str]) -> None:
+        """Drop the rows that were just imported; keep the rest (and their state)."""
+        fnset = {f for f in filenames if f}
+        if not fnset:
+            return
+        for i in reversed(range(self.grid.count())):
+            pm = self.grid.item(i).data(_ROLE_PENDING)
+            if pm.filename in fnset:
+                self.grid.takeItem(i)
+                self._assign.pop(pm.filename, None)
+        self._update_count()
+        self._refresh_targets()
+
+    def flash_status(self, message: str, *, error: bool = False) -> None:
+        color = "#c53030" if error else "#2f855a"
+        self.result_label.setStyleSheet(f"QLabel {{ color: {color}; }}")
+        self.result_label.setText(message)
 
     # ----------------------------------------------------------------- result
 

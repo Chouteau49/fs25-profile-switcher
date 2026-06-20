@@ -570,12 +570,14 @@ class MainWindow(QMainWindow):
         pending = self._scan_new_mods()
         dlg = NewModsDialog(pending, self.state, self)
         dlg.rescan_requested.connect(lambda: dlg.set_pending(self._scan_new_mods()))
-        if dlg.exec() != dlg.DialogCode.Accepted:
-            return
-        plans = dlg.result_plans()
+        # Import happens in place (dialog stays open so the user can keep
+        # classifying the remaining mods) — handled here, not via accept().
+        dlg.import_requested.connect(lambda plans: self._apply_new_mods_import(dlg, plans))
+        dlg.exec()
+
+    def _apply_new_mods_import(self, dlg, plans: list) -> None:
         if not plans:
             return
-
         result = self.state.import_new_mods(plans)
 
         # Refresh everything the import may have touched.
@@ -591,22 +593,28 @@ class MainWindow(QMainWindow):
         elif target is not None:
             self.editor.set_target(target)
 
-        msg = f"{len(result.imported)} mod(s) importé(s) dans la bibliothèque."
+        # Drop the imported rows; the dialog keeps the rest for further work.
+        dlg.remove_imported(result.imported)
+
+        msg = f"{len(result.imported)} mod(s) importé(s)."
+        extras = []
         if result.affected_profiles:
-            msg += "\nProfils mis à jour : " + ", ".join(result.affected_profiles)
+            extras.append("profils : " + ", ".join(result.affected_profiles))
         if result.affected_collections:
-            msg += "\nCollections mises à jour : " + ", ".join(
-                result.affected_collections
-            )
+            extras.append("collections : " + ", ".join(result.affected_collections))
+        if extras:
+            msg += " (" + " ; ".join(extras) + ")"
         self._status(f"{len(result.imported)} nouveau(x) mod(s) importé(s).")
+        dlg.flash_status(
+            msg + (f"  ⚠ {len(result.errors)} erreur(s)." if result.errors else ""),
+            error=bool(result.errors),
+        )
         if result.errors:
             QMessageBox.warning(
                 self,
                 "Import : erreurs",
                 msg + "\n\nErreurs :\n" + "\n".join(result.errors[:10]),
             )
-        else:
-            QMessageBox.information(self, "Import terminé", msg)
 
     # =================================================== duplicates / logs
 
