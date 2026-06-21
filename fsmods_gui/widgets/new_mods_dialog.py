@@ -15,8 +15,6 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
-    QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -44,11 +42,11 @@ _ROLE_SLUG = int(Qt.ItemDataRole.UserRole) + 1
 _THUMB = 96
 
 
-class NewModsDialog(QDialog):
+class NewModsPanel(QWidget):
     """Triage + classify downloaded mods before importing them."""
 
     rescan_requested = Signal()
-    import_requested = Signal(list)  # list[ImportPlan] — handled in place, dialog stays open
+    import_requested = Signal(list)  # list[ImportPlan] — handled in place, panel stays open
 
     def __init__(
         self,
@@ -58,8 +56,6 @@ class NewModsDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.state = state
-        self.setWindowTitle("📥 Nouveaux mods")
-        self.resize(1080, 680)
 
         # filename -> {"p": set[slug], "c": set[slug]}
         self._assign: dict[str, dict[str, set[str]]] = {}
@@ -149,30 +145,28 @@ class NewModsDialog(QDialog):
         splitter.setStretchFactor(1, 2)
 
         # ---- buttons
-        buttons = QDialogButtonBox(self)
-        rescan_btn = buttons.addButton(
-            "🔄 Rescanner", QDialogButtonBox.ButtonRole.ResetRole
-        )
+        rescan_btn = QPushButton("🔄 Rescanner", self)
         rescan_btn.clicked.connect(self.rescan_requested.emit)
-        self.import_btn = buttons.addButton(
-            "📥 Importer les mods cochés", QDialogButtonBox.ButtonRole.ApplyRole
-        )
+        self.import_btn = QPushButton("📥 Importer les mods cochés", self)
         self.import_btn.setToolTip(
-            "Importer les mods cochés ; la fenêtre reste ouverte pour continuer "
+            "Importer les mods cochés ; la vue reste ouverte pour continuer "
             "avec les autres."
         )
         self.import_btn.clicked.connect(self._on_import)
-        buttons.addButton("Fermer", QDialogButtonBox.ButtonRole.RejectRole)
-        buttons.rejected.connect(self.reject)
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(rescan_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(self.import_btn)
 
         self.result_label = QLabel(self)
         self.result_label.setWordWrap(True)
         self.result_label.setStyleSheet("QLabel { color: #2f855a; }")
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter, 1)
         layout.addWidget(self.result_label)
-        layout.addWidget(buttons)
+        layout.addLayout(btn_row)
 
         self._populate_targets()
         self.set_pending(pending)

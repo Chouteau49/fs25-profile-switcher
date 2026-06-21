@@ -1,4 +1,4 @@
-"""Dialog presenting the FS25 log analysis as a filterable table."""
+"""Embeddable panel presenting the FS25 log analysis as a filterable table."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
@@ -6,8 +6,6 @@ from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -33,7 +31,7 @@ _WARNING_BG = QColor(255, 240, 196)
 _WARNING_FG = QColor(120, 80, 0)
 
 
-class LogReportDialog(QDialog):
+class LogReportPanel(QWidget):
     """Render a list of :class:`LogIssue` with a severity/kind filter."""
 
     def __init__(
@@ -44,8 +42,6 @@ class LogReportDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Analyse du log FS25")
-        self.setMinimumSize(820, 520)
         self._issues = issues
 
         n_err = sum(i.count for i in issues if i.severity == SEV_ERROR)
@@ -89,11 +85,8 @@ class LogReportDialog(QDialog):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
-
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(intro)
         if log_path:
             path_label = QLabel(f"<small>{log_path}</small>", self)
@@ -101,7 +94,6 @@ class LogReportDialog(QDialog):
             layout.addWidget(path_label)
         layout.addLayout(filter_row)
         layout.addWidget(self.table, 1)
-        layout.addWidget(buttons)
 
         self._populate(self._issues)
 

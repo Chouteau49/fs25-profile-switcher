@@ -1,18 +1,17 @@
-"""Dialog: audit a savegame and propose profile clean-up / completion."""
+"""Embeddable panel: audit a savegame and propose profile clean-up / completion."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -44,8 +43,13 @@ _STATUS_FG = {
 }
 
 
-class SavegameAuditDialog(QDialog):
+class SavegameAuditPanel(QWidget):
     """Pick a savegame, see how each profile mod is used, act on the profile."""
+
+    # Emitted when the user applies changes: (mods_to_remove, mods_to_add).
+    apply_requested = Signal(list, list)
+    # Emitted to delete the given filenames from the library (disk + configs).
+    delete_requested = Signal(list)
 
     def __init__(
         self,
@@ -59,16 +63,14 @@ class SavegameAuditDialog(QDialog):
         self._profile = profile
         self._catalog = catalog
         self._collection_mods = collection_mods or {}
-        self.setWindowTitle(f"Audit de sauvegarde — profil « {profile.name} »")
-        self.setMinimumSize(900, 620)
 
         self._savegames = list_savegames(user_dir)
         self._report: AuditReport | None = None
 
         intro = QLabel(
-            "Compare le profil courant au contenu réellement utilisé par une "
-            "sauvegarde. <b>Aucun fichier n'est supprimé</b> : seules des "
-            "modifications du profil sont proposées."
+            f"Profil <b>« {profile.name} »</b> — comparé au contenu réellement "
+            "utilisé par une sauvegarde. <b>Aucun fichier n'est supprimé</b> : "
+            "seules des modifications du profil sont proposées."
         )
         intro.setWordWrap(True)
 
@@ -92,8 +94,26 @@ class SavegameAuditDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Retirer", "Statut", "Mod", "Note"])
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+
+        # Bulk actions on the current multi-selection of profile mods.
+        check_btn = QPushButton("☑ Cocher « Retirer »", self)
+        check_btn.clicked.connect(lambda: self._set_remove_for_selection(True))
+        uncheck_btn = QPushButton("☐ Décocher", self)
+        uncheck_btn.clicked.connect(lambda: self._set_remove_for_selection(False))
+        self.delete_btn = QPushButton("🗑 Supprimer de la bibliothèque…", self)
+        self.delete_btn.setToolTip(
+            "Effacer définitivement le(s) .zip sélectionné(s) du disque "
+            "(retirés aussi de tous les profils et collections)."
+        )
+        self.delete_btn.clicked.connect(self._emit_delete)
+        table_actions = QHBoxLayout()
+        table_actions.addWidget(check_btn)
+        table_actions.addWidget(uncheck_btn)
+        table_actions.addStretch(1)
+        table_actions.addWidget(self.delete_btn)
 
         # ---- missing-from-profile table
         self.missing_label = QLabel("", self)
@@ -101,18 +121,32 @@ class SavegameAuditDialog(QDialog):
         self.missing_table.setColumnCount(3)
         self.missing_table.setHorizontalHeaderLabels(["Ajouter", "Mod (utilisé par le save)", "Disponibilité"])
         self.missing_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.missing_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.missing_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
         self.missing_table.verticalHeader().setVisible(False)
         self.missing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel,
-            parent=self,
-        )
-        buttons.button(QDialogButtonBox.StandardButton.Apply).setText("Appliquer au profil")
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+        add_check_btn = QPushButton("☑ Cocher « Ajouter »", self)
+        add_check_btn.clicked.connect(lambda: self._set_add_for_selection(True))
+        add_uncheck_btn = QPushButton("☐ Décocher", self)
+        add_uncheck_btn.clicked.connect(lambda: self._set_add_for_selection(False))
+        missing_actions = QHBoxLayout()
+        missing_actions.addWidget(add_check_btn)
+        missing_actions.addWidget(add_uncheck_btn)
+        missing_actions.addStretch(1)
+
+        self.apply_btn = QPushButton("✔ Appliquer au profil", self)
+        self.apply_btn.clicked.connect(self._emit_apply)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(self.apply_btn)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(intro)
         layout.addLayout(sg_row)
         layout.addWidget(self.summary)
@@ -120,12 +154,49 @@ class SavegameAuditDialog(QDialog):
             layout.addWidget(QLabel("Aucune sauvegarde trouvée dans le dossier du jeu."))
         layout.addWidget(QLabel("<b>Mods du profil</b>", self))
         layout.addWidget(self.table, 3)
+        layout.addLayout(table_actions)
         layout.addWidget(self.missing_label)
         layout.addWidget(self.missing_table, 2)
-        layout.addWidget(buttons)
+        layout.addLayout(missing_actions)
+        layout.addLayout(btn_row)
 
         if self._savegames:
             self._reload()
+
+    def _emit_apply(self) -> None:
+        self.apply_requested.emit(self.mods_to_remove(), self.mods_to_add())
+
+    # --------------------------------------------------- multi-selection ops
+
+    @staticmethod
+    def _set_check_for_selected_rows(table: QTableWidget, checked: bool) -> None:
+        """Set the column-0 check box for every (checkable) selected row."""
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        for index in table.selectionModel().selectedRows():
+            item = table.item(index.row(), 0)
+            if item is not None and (item.flags() & Qt.ItemFlag.ItemIsUserCheckable):
+                item.setCheckState(state)
+
+    def _set_remove_for_selection(self, checked: bool) -> None:
+        self._set_check_for_selected_rows(self.table, checked)
+
+    def _set_add_for_selection(self, checked: bool) -> None:
+        self._set_check_for_selected_rows(self.missing_table, checked)
+
+    def _selected_profile_filenames(self) -> list[str]:
+        """Filenames of the rows highlighted in the profile-mods table."""
+        out: list[str] = []
+        for index in self.table.selectionModel().selectedRows():
+            item = self.table.item(index.row(), 0)
+            fname = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+            if fname:
+                out.append(fname)
+        return out
+
+    def _emit_delete(self) -> None:
+        names = self._selected_profile_filenames()
+        if names:
+            self.delete_requested.emit(names)
 
     # ------------------------------------------------------------------ render
 

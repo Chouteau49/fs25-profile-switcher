@@ -18,13 +18,12 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -35,10 +34,11 @@ from ..profiles.savegame_audit import list_savegames, parse_savegame
 _ROLE_PACK = int(Qt.ItemDataRole.UserRole)
 
 
-class AutoDriveDialog(QDialog):
+class AutoDrivePanel(QWidget):
     """Pick a route pack + a savegame, then install the AutoDrive XML."""
 
     rescan_requested = Signal()
+    install_requested = Signal()
 
     def __init__(
         self,
@@ -48,8 +48,6 @@ class AutoDriveDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self._user_dir = user_dir
-        self.setWindowTitle("🛣 Routes AutoDrive")
-        self.resize(820, 520)
 
         intro = QLabel(
             "Installe un <b>pack de routes AutoDrive</b> téléchargé (un zip "
@@ -102,22 +100,20 @@ class AutoDriveDialog(QDialog):
         cols.addWidget(target_box, 1)
 
         # ---- buttons
-        buttons = QDialogButtonBox(self)
-        rescan_btn = buttons.addButton(
-            "🔄 Rescanner", QDialogButtonBox.ButtonRole.ResetRole
-        )
+        rescan_btn = QPushButton("🔄 Rescanner", self)
         rescan_btn.clicked.connect(self.rescan_requested.emit)
-        self.install_btn = buttons.addButton(
-            "🛣 Installer dans la sauvegarde", QDialogButtonBox.ButtonRole.AcceptRole
-        )
-        self.install_btn.clicked.connect(self.accept)
-        buttons.addButton("Fermer", QDialogButtonBox.ButtonRole.RejectRole)
-        buttons.rejected.connect(self.reject)
+        self.install_btn = QPushButton("🛣 Installer dans la sauvegarde", self)
+        self.install_btn.clicked.connect(self.install_requested.emit)
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(rescan_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(self.install_btn)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(intro)
         layout.addLayout(cols, 1)
-        layout.addWidget(buttons)
+        layout.addLayout(btn_row)
 
         self.set_packs(scan_packs(source_dirs))
 

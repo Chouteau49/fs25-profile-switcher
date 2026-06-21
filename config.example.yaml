@@ -40,6 +40,11 @@ games:
     # downloads_dir: "C:/Users/<you>/Downloads"
     # inbox_dir: "D:/FS25-Library/_inbox"
 
+    # Optional: path to Giants TestRunner.exe (from the Giants Developer Network)
+    # used by the "🧪 Tester les mods" view. Leave unset to rely only on the
+    # built-in static checks (zip integrity, modDesc.xml, icon, textures, size).
+    # testrunner_exe: "C:/Giants/TestRunner/TestRunner.exe"
+
   fs22:
     mods_dir: "C:/Users/<you>/Documents/My Games/FarmingSimulator2022/mods"
     library_dir: "D:/FS22-Library"

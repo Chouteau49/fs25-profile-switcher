@@ -4,9 +4,9 @@ from fsmods_gui.profiles.catalog import Catalog, CatalogEntry
 from fsmods_gui.profiles.duplicates import (
     DUP_CONTENT,
     DUP_FILENAME,
+    duplicate_filenames,
     find_duplicate_groups,
     normalize_stem,
-    duplicate_filenames,
 )
 
 
@@ -28,6 +28,43 @@ def test_normalize_strips_version_and_words() -> None:
     assert normalize_stem("FS25_Mod_v1.2.3.zip") == "fs25_mod"
     assert normalize_stem("FS25_Mod_old.zip") == "fs25_mod"
     assert normalize_stem("FS25_Mod - copie.zip") == "fs25_mod"
+
+
+def test_normalize_keeps_trailing_number() -> None:
+    # "Mod1" and "Mod2" are different mods, not copies — must NOT collapse.
+    assert normalize_stem("FS25_Trailer1.zip") != normalize_stem("FS25_Trailer2.zip")
+    assert normalize_stem("FS25_Pack2.zip") == "fs25_pack2"
+
+
+def test_normalize_keeps_two_part_model_number() -> None:
+    # "18.500" is a truck model number, not a version → keep it.
+    assert normalize_stem("FS25_MAN_TGX_18.500.zip") == "fs25_man_tgx_18.500"
+    assert normalize_stem("FS25_MAN_TGX_18.500.zip") != normalize_stem(
+        "FS25_MAN_TGX_26.640.zip"
+    )
+
+
+def test_normalize_strips_explicit_and_multipart_versions() -> None:
+    assert normalize_stem("FS25_Mod_v1.zip") == "fs25_mod"
+    assert normalize_stem("FS25_Mod_v1.2.zip") == "fs25_mod"
+    assert normalize_stem("FS25_Mod_1.0.0.0.zip") == "fs25_mod"
+
+
+def test_trailing_numbers_are_not_filename_duplicates() -> None:
+    cat = _catalog(
+        _entry("FS25_Trailer1.zip", "Trailer One"),
+        _entry("FS25_Trailer2.zip", "Trailer Two"),
+    )
+    assert find_duplicate_groups(cat) == []
+
+
+def test_content_match_requires_author() -> None:
+    # Same title, no author → too weak, must not group.
+    cat = _catalog(
+        _entry("FS25_A.zip", "Trailer"),
+        _entry("FS25_B.zip", "Trailer"),
+    )
+    assert find_duplicate_groups(cat) == []
 
 
 def test_no_duplicates_returns_empty() -> None:

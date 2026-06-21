@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.8] - 2026-06-21
+
+### Added
+
+- **Nouvelle vue « 🧪 Tester les mods » : valider un mod (OK / À vérifier / KO) avant de jouer** : un onglet qui scanne les `.zip` et signale ce que le scanner ModHub de Giants rejette le plus souvent, sans rien lancer en jeu. Deux moteurs complémentaires :
+  - **Contrôles intégrés** (toujours actifs, sans dépendance) : intégrité de l'archive, **nom de fichier valide** (le jeu refuse espaces/caractères spéciaux), `modDesc.xml` **présent et bien formé** (avec `descVersion`, `<version>`, `<title>`), **icône déclarée réellement présente** dans le zip, **textures DDS en puissance de 2**, et fichiers/archives trop volumineux. Validation **XSD optionnelle** contre le `modDesc.xsd` du jeu (si `install_dir` est configuré et `lxml` installé).
+  - **Giants TestRunner (optionnel)** : si on renseigne le chemin de `TestRunner.exe` (Giants Developer Network), son code de sortie et sa sortie texte sont repliés dans le verdict. Exécution défensive (timeout, capture stdout/stderr, jamais de crash) car son interface n'est pas publiquement stable.
+  - **Portée** au choix : *mods du profil courant* ou *toute la bibliothèque*. Tableau de résultats coloré (✅/⚠/❌) + détail des contrôles par mod sélectionné. Traitement en tâche de fond (worker QThread) avec barre de progression.
+  - **Filtre par statut** : menu « Afficher : » pour ne voir que *Problèmes (KO + à vérifier)*, *KO seulement*, *À vérifier seulement* ou *OK seulement* (le décompte global reste sur le total).
+  - Nouveau module `fsmods_gui/profiles/testrunner.py` (`validate_mod`, `validate_mods`, `run_testrunner`, `ModTestResult`, `Check`) — sans Qt, testé. Nouvelle vue `fsmods_gui/widgets/testrunner_dialog.py` (`TestRunnerPanel`) et worker `TestRunnerWorker`.
+- **Config : chemin de TestRunner paramétrable** : `games.<jeu>.testrunner_exe` (optionnel ; laissé vide ⇒ contrôles intégrés uniquement). Voir `config.example.yaml`.
+
+### Changed
+
+- **Vues secondaires en panneaux intégrés (fin de la migration) : plus aucune pop-up** : les dernières fenêtres modales (`QDialog`) — *Doublons*, *Statistiques*, *Log FS25*, *Audit sauvegarde*, *Routes AutoDrive*, *Nouveaux mods* — sont désormais des **panneaux intégrés** (`QWidget`) dans la pile d'onglets à droite, comme l'éditeur. On garde le contexte (profil sélectionné, état des cases) sans rouvrir une boîte de dialogue, et chaque onglet se **reconstruit à partir de l'état courant** quand il devient visible. Renommage `…Dialog` → `…Panel` (`DuplicatesPanel`, `StatsPanel`, `LogReportPanel`, `SavegameAuditPanel`, `AutoDrivePanel`, `NewModsPanel`), communication par **signaux** vers la fenêtre principale.
+
+### Fixed
+
+- **Test des mods : les textures `*Array.dds` n'étaient plus signalées à tort** : `fruitArray.dds`, `plantArray.dds`, etc. sont des **textures de données** (tables de lookup) aux dimensions volontairement arbitraires — la règle « puissance de 2 » ne s'y applique pas et le jeu les charge sans problème. Le contrôle de textures les ignore désormais pour éviter le bruit.
+- **Doublons : moins de faux positifs** : la normalisation des noms regroupait à tort des mods réellement différents. Un **numéro nu** en fin de nom (`Mod1` vs `Mod2`) ou un **nombre à deux composantes** (`MAN_TGX_18.500`, un nom de modèle) n'est plus traité comme un marqueur de copie/version : on ne retire désormais que ce qui marque sans ambiguïté une copie (`(1)`, `copy`, `copie`, `old`, `backup`…) ou une vraie version (`_v1.2.3`, ou un numéro pointé à **3 composantes ou plus**). De plus, la détection par **contenu** exige maintenant *à la fois* un titre **et** un auteur réels — deux mods sans auteur partageant un titre générique (« Trailer », « Pack ») ne sont plus fusionnés.
+
+### Build / Release
+
+- Version passée de `0.2.7` à `0.2.8`.
+
 ## [0.2.7] - 2026-06-20
 
 ### Added

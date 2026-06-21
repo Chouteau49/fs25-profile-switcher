@@ -1,10 +1,7 @@
-"""Report dialog listing duplicate mods found in the library."""
+"""Embeddable panel listing duplicate mods found in the library."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
     QLabel,
     QTreeWidget,
     QTreeWidgetItem,
@@ -21,13 +18,11 @@ _KIND_FR = {
 }
 
 
-class DuplicatesDialog(QDialog):
+class DuplicatesPanel(QWidget):
     """Show duplicate groups grouped by their detected identity."""
 
     def __init__(self, catalog: Catalog | None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Doublons de la bibliothèque")
-        self.setMinimumSize(680, 460)
 
         groups = find_duplicate_groups(catalog)
         total_files = sum(len(g.entries) for g in groups)
@@ -54,14 +49,10 @@ class DuplicatesDialog(QDialog):
         for col in range(3):
             tree.resizeColumnToContents(col)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
-
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(intro)
         layout.addWidget(tree, 1)
-        layout.addWidget(buttons)
 
     def _add_group(self, tree: QTreeWidget, group: DuplicateGroup) -> None:
         reason = _KIND_FR.get(group.kind, group.kind)

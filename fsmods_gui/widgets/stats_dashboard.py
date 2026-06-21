@@ -1,15 +1,10 @@
-"""Dashboard dialog: library statistics ("Carte des mods")."""
+"""Embeddable dashboard panel: library statistics ("Carte des mods")."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
-    QDialogButtonBox,
     QGridLayout,
     QGroupBox,
-    QHBoxLayout,
-    QHeaderView,
     QLabel,
     QScrollArea,
     QTableWidget,
@@ -24,7 +19,7 @@ from ..profiles.profile import Profile
 from ..profiles.stats import LibraryStats, compute_stats, human_size
 
 
-class StatsDashboardDialog(QDialog):
+class StatsPanel(QWidget):
     def __init__(
         self,
         catalog: Catalog | None,
@@ -33,8 +28,6 @@ class StatsDashboardDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Carte des mods — statistiques")
-        self.setMinimumSize(820, 640)
         stats = compute_stats(catalog, profiles, collections)
 
         content = QWidget()
@@ -98,13 +91,9 @@ class StatsDashboardDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(content)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
-
         root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
         root.addWidget(scroll, 1)
-        root.addWidget(buttons)
 
     # ------------------------------------------------------------------ pieces
 

@@ -5,10 +5,11 @@ passive: they read state via setters, emit signals on user actions.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QThread, QSize
+from pathlib import Path
+
+from PySide6.QtCore import QSize, Qt, QThread
 from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QFileDialog,
     QFileIconProvider,
@@ -23,11 +24,13 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStatusBar,
+    QTabWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
 )
 
+from . import __version__
 from .profiles.activator import ActivationReport
 from .profiles.sync_back import (
     add_to_profile,
@@ -43,11 +46,16 @@ from .widgets.sync_dialog import (
     ADD_LIB_AND_PROFILE,
     ADD_LIB_ONLY,
     REMOVE_DROP,
-    SyncDialog,
     UPDATE_IGNORE,
+    SyncDialog,
 )
-from .workers import ActivateWorker, GameWatcher, ScanWorker, make_worker_thread
-from . import __version__
+from .workers import (
+    ActivateWorker,
+    GameWatcher,
+    ScanWorker,
+    TestRunnerWorker,
+    make_worker_thread,
+)
 
 
 class MainWindow(QMainWindow):
@@ -113,8 +121,8 @@ class MainWindow(QMainWindow):
         provider = QFileIconProvider()
         self.activate_btn.setIcon(provider.icon(QFileIconProvider.IconType.File)) 
 
-        right_panel = QWidget(self)
-        right_layout = QVBoxLayout(right_panel)
+        editor_tab = QWidget(self)
+        right_layout = QVBoxLayout(editor_tab)
         header = QHBoxLayout()
         header.addStretch(1)
         self._header_version_label = QLabel(f"Version {__version__}", self)
@@ -131,9 +139,39 @@ class MainWindow(QMainWindow):
         right_layout.addLayout(header)
         right_layout.addWidget(self.editor, 1)
 
+        # ---- right side is a tab stack: editor + feature panels (no popups)
+        self.tabs = QTabWidget(self)
+        self.tabs.addTab(editor_tab, "📝 Éditeur")
+        self._feature_panels: dict[int, QWidget] = {}
+        self._TAB_DUP = self.tabs.addTab(self._make_tab_container(), "🧬 Doublons")
+        self._TAB_STATS = self.tabs.addTab(self._make_tab_container(), "📊 Statistiques")
+        self._TAB_LOG = self.tabs.addTab(self._make_tab_container(), "📋 Log FS25")
+        self._TAB_AUDIT = self.tabs.addTab(
+            self._make_tab_container(), "🔍 Audit sauvegarde"
+        )
+        self._TAB_AUTODRIVE = self.tabs.addTab(
+            self._make_tab_container(), "🛣 Routes AutoDrive"
+        )
+        self._TAB_NEWMODS = self.tabs.addTab(
+            self._make_tab_container(), "📥 Nouveaux mods"
+        )
+        self._TAB_TESTRUNNER = self.tabs.addTab(
+            self._make_tab_container(), "🧪 Tester les mods"
+        )
+        self._tab_builders = {
+            self._TAB_DUP: self._build_duplicates_panel,
+            self._TAB_STATS: self._build_stats_panel,
+            self._TAB_LOG: self._build_log_panel,
+            self._TAB_AUDIT: self._build_audit_panel,
+            self._TAB_AUTODRIVE: self._build_autodrive_panel,
+            self._TAB_NEWMODS: self._build_new_mods_panel,
+            self._TAB_TESTRUNNER: self._build_testrunner_panel,
+        }
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.addWidget(left_panel)
-        splitter.addWidget(right_panel)
+        splitter.addWidget(self.tabs)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 4)
         self.setCentralWidget(splitter)
@@ -142,37 +180,14 @@ class MainWindow(QMainWindow):
         self._version_label = QLabel(f"Version {__version__}", self)
         self.statusBar().addPermanentWidget(self._version_label)
 
+        # The library/maintenance views (Doublons, Stats, Log, Audit, AutoDrive,
+        # Nouveaux mods) live in the tab stack on the right — no toolbar button
+        # duplicates them. The toolbar only keeps actions without a tab.
         toolbar = QToolBar("Principal", self)
         self.addToolBar(toolbar)
         rescan = QAction("🔄 Rescanner la bibliothèque", self)
         rescan.triggered.connect(self._on_rescan)
         toolbar.addAction(rescan)
-        new_mods_action = QAction("📥 Nouveaux mods", self)
-        new_mods_action.setToolTip(
-            "Importer les mods téléchargés (Téléchargements + dossier new_mods) "
-            "et les classer dans des profils / collections."
-        )
-        new_mods_action.triggered.connect(self._on_new_mods)
-        toolbar.addAction(new_mods_action)
-        dup_action = QAction("🧬 Doublons", self)
-        dup_action.triggered.connect(self._on_show_duplicates)
-        toolbar.addAction(dup_action)
-        stats_action = QAction("📊 Statistiques", self)
-        stats_action.triggered.connect(self._on_show_stats)
-        toolbar.addAction(stats_action)
-        log_action = QAction("📋 Analyser le log FS25", self)
-        log_action.triggered.connect(self._on_analyze_log)
-        toolbar.addAction(log_action)
-        audit_action = QAction("🔍 Auditer une sauvegarde", self)
-        audit_action.triggered.connect(self._on_audit_savegame)
-        toolbar.addAction(audit_action)
-        autodrive_action = QAction("🛣 Routes AutoDrive", self)
-        autodrive_action.setToolTip(
-            "Installer un pack de routes AutoDrive téléchargé "
-            "(AutoDrive_config.xml / AutoDriveUsersData.xml) dans une sauvegarde."
-        )
-        autodrive_action.triggered.connect(self._on_install_autodrive)
-        toolbar.addAction(autodrive_action)
         toolbar.addSeparator()
         export_action = QAction("📤 Exporter config", self)
         export_action.triggered.connect(self._on_export_config)
@@ -191,6 +206,9 @@ class MainWindow(QMainWindow):
         self._activate_thread: QThread | None = None
         self._activate_worker: ActivateWorker | None = None
         self._progress: QProgressDialog | None = None
+        self._testrunner_thread: QThread | None = None
+        self._testrunner_worker: TestRunnerWorker | None = None
+        self._testrunner_panel = None
 
         self._watcher = GameWatcher(parent=self)
         self._watcher.started.connect(self._on_game_started)
@@ -206,6 +224,244 @@ class MainWindow(QMainWindow):
 
     def _status(self, msg: str) -> None:
         self.statusBar().showMessage(msg, 5000)
+
+    # ====================================================== feature tabs
+
+    def _make_tab_container(self) -> QWidget:
+        container = QWidget(self)
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(8, 8, 8, 8)
+        return container
+
+    def _set_tab_content(self, index: int, widget: QWidget) -> None:
+        """Replace a feature tab's content with a freshly built panel."""
+        container = self.tabs.widget(index)
+        layout = container.layout()
+        while layout.count():
+            old = layout.takeAt(0).widget()
+            if old is not None:
+                old.deleteLater()
+        layout.addWidget(widget)
+        self._feature_panels[index] = widget
+
+    def _rebuild_feature_tab(self, index: int) -> None:
+        builder = self._tab_builders.get(index)
+        if builder is not None:
+            self._set_tab_content(index, builder())
+
+    def _on_tab_changed(self, index: int) -> None:
+        # Rebuild from current state every time a feature tab becomes visible.
+        self._rebuild_feature_tab(index)
+
+    def _show_feature_tab(self, index: int) -> None:
+        """Switch to a feature tab (rebuilding even if it is already current)."""
+        if self.tabs.currentIndex() == index:
+            self._rebuild_feature_tab(index)
+        else:
+            self.tabs.setCurrentIndex(index)
+
+    # ---- builders: each returns the panel to show in its tab
+
+    def _build_duplicates_panel(self) -> QWidget:
+        if self.state.catalog is None:
+            return QLabel("Scan de la bibliothèque en cours… réessaie dans un instant.")
+        from .widgets.duplicates_dialog import DuplicatesPanel
+
+        return DuplicatesPanel(self.state.catalog)
+
+    def _build_stats_panel(self) -> QWidget:
+        if self.state.catalog is None:
+            return QLabel("Scan de la bibliothèque en cours… réessaie dans un instant.")
+        from .widgets.stats_dashboard import StatsPanel
+
+        return StatsPanel(
+            self.state.catalog, self.state.profiles, self.state.collections
+        )
+
+    def _build_log_panel(self) -> QWidget:
+        try:
+            mods_dir = self.state.game.mods_dir
+        except KeyError:
+            return QLabel("Jeu non configuré.")
+        from .profiles.log_analyzer import analyze_log, log_path_for
+        from .widgets.log_report_dialog import LogReportPanel
+
+        log_path = log_path_for(mods_dir)
+        if not log_path.is_file():
+            return QLabel(f"Aucun fichier log.txt trouvé :\n{log_path}")
+        return LogReportPanel(analyze_log(log_path), log_path=str(log_path))
+
+    def _build_audit_panel(self) -> QWidget:
+        profile = self.state.current_profile
+        if profile is None:
+            return QLabel("Sélectionne un profil à gauche pour l'auditer.")
+        try:
+            user_dir = self.state.game.mods_dir.parent
+        except KeyError:
+            return QLabel("Jeu non configuré.")
+        from .widgets.savegame_audit_dialog import SavegameAuditPanel
+
+        panel = SavegameAuditPanel(
+            profile,
+            self.state.catalog,
+            user_dir,
+            collection_mods=self.state.collection_mods_map(),
+        )
+        panel.apply_requested.connect(
+            lambda rem, add, p=profile: self._apply_audit(p, rem, add)
+        )
+        panel.delete_requested.connect(self._delete_from_audit)
+        return panel
+
+    def _delete_from_audit(self, filenames: list[str]) -> None:
+        """Delete the selected mods from the library, then re-audit."""
+        if not filenames or self.state.catalog is None:
+            return
+        entries = [
+            self.state.catalog.entries[f]
+            for f in filenames
+            if f in self.state.catalog.entries
+        ]
+        if not entries:
+            return
+        self._on_delete_mods(entries)
+        self._rebuild_feature_tab(self._TAB_AUDIT)
+
+    def _build_autodrive_panel(self) -> QWidget:
+        try:
+            game = self.state.game
+        except KeyError:
+            return QLabel("Jeu non configuré.")
+        from .profiles.autodrive import scan_packs
+        from .widgets.autodrive_dialog import AutoDrivePanel
+
+        panel = AutoDrivePanel(game.new_mod_source_dirs(), game.mods_dir.parent)
+        panel.rescan_requested.connect(
+            lambda: panel.set_packs(scan_packs(game.new_mod_source_dirs()))
+        )
+        panel.install_requested.connect(lambda: self._install_autodrive(panel))
+        return panel
+
+    def _build_new_mods_panel(self) -> QWidget:
+        try:
+            game = self.state.game
+        except KeyError:
+            return QLabel("Jeu non configuré.")
+        if game.library_mods_dir is None:
+            return QLabel(
+                f"Bibliothèque non configurée : renseigne "
+                f"games.{self.state.game_key}.library_dir dans config.yaml."
+            )
+        if self.state.catalog is None:
+            return QLabel("Scan de la bibliothèque en cours… réessaie dans un instant.")
+        from .widgets.new_mods_dialog import NewModsPanel
+
+        panel = NewModsPanel(self._scan_new_mods(), self.state)
+        panel.rescan_requested.connect(
+            lambda: panel.set_pending(self._scan_new_mods())
+        )
+        panel.import_requested.connect(
+            lambda plans: self._apply_new_mods_import(panel, plans)
+        )
+        return panel
+
+    def _build_testrunner_panel(self) -> QWidget:
+        try:
+            game = self.state.game
+        except KeyError:
+            return QLabel("Jeu non configuré.")
+        if game.library_mods_dir is None:
+            return QLabel(
+                f"Bibliothèque non configurée : renseigne "
+                f"games.{self.state.game_key}.library_dir dans config.yaml."
+            )
+        if self.state.catalog is None:
+            return QLabel("Scan de la bibliothèque en cours… réessaie dans un instant.")
+        from .widgets.testrunner_dialog import TestRunnerPanel
+
+        panel = TestRunnerPanel(self.state)
+        panel.run_requested.connect(
+            lambda scope, exe, p=panel: self._run_testrunner(p, scope, exe)
+        )
+        self._testrunner_panel = panel
+        return panel
+
+    # ========================================================= test runner
+
+    def _run_testrunner(self, panel, scope: str, exe_text: str) -> None:
+        from pathlib import Path as _Path
+
+        from .widgets.testrunner_dialog import SCOPE_PROFILE
+
+        if self.state.catalog is None:
+            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
+            return
+        mods_dir = self.state.game.library_mods_dir
+        if mods_dir is None:
+            return
+
+        if scope == SCOPE_PROFILE:
+            profile = self.state.current_profile
+            if profile is None:
+                QMessageBox.information(
+                    self, "Aucun profil", "Sélectionne un profil à tester."
+                )
+                return
+            filenames = self.state.effective_filenames(profile)
+        else:
+            filenames = sorted(self.state.catalog.entries)
+        zip_paths = [mods_dir / f for f in filenames]
+        if not zip_paths:
+            QMessageBox.information(
+                self, "Rien à tester", "Aucun mod à valider pour cette portée."
+            )
+            return
+
+        exe_path: _Path | None = None
+        if exe_text:
+            exe_path = _Path(exe_text).expanduser()
+            if not exe_path.is_file():
+                QMessageBox.warning(
+                    self,
+                    "TestRunner introuvable",
+                    f"Le fichier indiqué n'existe pas :\n{exe_path}\n\n"
+                    "Les tests utiliseront uniquement les contrôles intégrés.",
+                )
+                exe_path = None
+
+        xsd_path = self.state.game.find_moddesc_xsd()
+
+        panel.set_running(True)
+        self._testrunner_worker = TestRunnerWorker(
+            zip_paths, xsd_path=xsd_path, testrunner_exe=exe_path
+        )
+        self._testrunner_worker.progress.connect(panel.set_progress)
+        self._testrunner_worker.finished.connect(
+            lambda results, p=panel: self._on_testrunner_done(p, results)
+        )
+        self._testrunner_worker.failed.connect(
+            lambda msg, p=panel: self._on_testrunner_failed(p, msg)
+        )
+        self._testrunner_thread = make_worker_thread(self._testrunner_worker)
+        self._testrunner_thread.start()
+        self._status(f"Validation de {len(zip_paths)} mod(s)…")
+
+    def _on_testrunner_done(self, panel, results: object) -> None:
+        panel.set_running(False)
+        if not isinstance(results, list):
+            return
+        panel.set_results(results)
+        from .widgets.testrunner_dialog import STATUS_KO, STATUS_WARN
+
+        ko = sum(1 for r in results if r.status == STATUS_KO)
+        warn = sum(1 for r in results if r.status == STATUS_WARN)
+        self._status(
+            f"Tests terminés : {len(results)} mod(s) — {ko} KO, {warn} à vérifier."
+        )
+
+    def _on_testrunner_failed(self, panel, message: str) -> None:
+        panel.set_running(False)
+        QMessageBox.warning(self, "Validation échouée", message)
 
     # =========================================================== profiles
 
@@ -549,32 +805,6 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
 
-    def _on_new_mods(self) -> None:
-        try:
-            game = self.state.game
-        except KeyError:
-            return
-        if game.library_mods_dir is None:
-            QMessageBox.warning(
-                self,
-                "Bibliothèque non configurée",
-                f"Renseigne games.{self.state.game_key}.library_dir dans config.yaml.",
-            )
-            return
-        if self.state.catalog is None:
-            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
-            return
-
-        from .widgets.new_mods_dialog import NewModsDialog
-
-        pending = self._scan_new_mods()
-        dlg = NewModsDialog(pending, self.state, self)
-        dlg.rescan_requested.connect(lambda: dlg.set_pending(self._scan_new_mods()))
-        # Import happens in place (dialog stays open so the user can keep
-        # classifying the remaining mods) — handled here, not via accept().
-        dlg.import_requested.connect(lambda plans: self._apply_new_mods_import(dlg, plans))
-        dlg.exec()
-
     def _apply_new_mods_import(self, dlg, plans: list) -> None:
         if not plans:
             return
@@ -615,25 +845,6 @@ class MainWindow(QMainWindow):
                 "Import : erreurs",
                 msg + "\n\nErreurs :\n" + "\n".join(result.errors[:10]),
             )
-
-    # =================================================== duplicates / logs
-
-    def _on_show_duplicates(self) -> None:
-        if self.state.catalog is None:
-            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
-            return
-        from .widgets.duplicates_dialog import DuplicatesDialog
-        DuplicatesDialog(self.state.catalog, self).exec()
-
-    def _on_show_stats(self) -> None:
-        if self.state.catalog is None:
-            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
-            return
-        from .widgets.stats_dashboard import StatsDashboardDialog
-
-        StatsDashboardDialog(
-            self.state.catalog, self.state.profiles, self.state.collections, self
-        ).exec()
 
     # =================================================== config backup (#4)
 
@@ -731,55 +942,7 @@ class MainWindow(QMainWindow):
             + (" (remplacement)." if result.replaced else " (fusion)."),
         )
 
-    def _on_analyze_log(self) -> None:
-        """Manually analyze the current FS25 log (toolbar action)."""
-        try:
-            mods_dir = self.state.game.mods_dir
-        except KeyError:
-            return
-        self._show_log_report(mods_dir, only_if_issues=False)
-
-    def _show_log_report(self, mods_dir, *, only_if_issues: bool) -> None:
-        from .profiles.log_analyzer import analyze_log, log_path_for
-        from .widgets.log_report_dialog import LogReportDialog
-
-        log_path = log_path_for(mods_dir)
-        if not log_path.is_file():
-            if not only_if_issues:
-                QMessageBox.information(
-                    self,
-                    "Log introuvable",
-                    f"Aucun fichier log.txt trouvé :\n{log_path}",
-                )
-            return
-        issues = analyze_log(log_path)
-        if only_if_issues and not issues:
-            self._status("Log FS25 : aucun problème détecté.")
-            return
-        LogReportDialog(issues, log_path=str(log_path), parent=self).exec()
-
-    def _on_audit_savegame(self) -> None:
-        if self.state.current_profile is None:
-            QMessageBox.information(self, "Aucun profil", "Sélectionne un profil à auditer.")
-            return
-        try:
-            user_dir = self.state.game.mods_dir.parent
-        except KeyError:
-            return
-        from .widgets.savegame_audit_dialog import SavegameAuditDialog
-
-        profile = self.state.current_profile
-        dlg = SavegameAuditDialog(
-            profile,
-            self.state.catalog,
-            user_dir,
-            self,
-            collection_mods=self.state.collection_mods_map(),
-        )
-        if dlg.exec() != dlg.DialogCode.Accepted:
-            return
-        remove = dlg.mods_to_remove()
-        add = dlg.mods_to_add()
+    def _apply_audit(self, profile, remove: list[str], add: list[str]) -> None:
         changed = False
         for fname in remove:
             if fname == profile.map_mod:
@@ -804,30 +967,18 @@ class MainWindow(QMainWindow):
                 f"Profil mis à jour après audit : "
                 f"-{len(remove)} / +{len(add)} mod(s)."
             )
+            # Re-audit so the panel reflects the updated profile.
+            self._rebuild_feature_tab(self._TAB_AUDIT)
 
-    def _on_install_autodrive(self) -> None:
-        try:
-            game = self.state.game
-        except KeyError:
-            return
-        user_dir = game.mods_dir.parent
-        source_dirs = game.new_mod_source_dirs()
+    def _install_autodrive(self, panel) -> None:
+        from .profiles.autodrive import install_pack
 
-        from .profiles.autodrive import install_pack, scan_packs
-        from .widgets.autodrive_dialog import AutoDriveDialog
-
-        dlg = AutoDriveDialog(source_dirs, user_dir, self)
-        dlg.rescan_requested.connect(
-            lambda: dlg.set_packs(scan_packs(game.new_mod_source_dirs()))
-        )
-        if dlg.exec() != dlg.DialogCode.Accepted:
-            return
-        pack = dlg.selected_pack()
-        savegame = dlg.selected_savegame()
+        pack = panel.selected_pack()
+        savegame = panel.selected_savegame()
         if pack is None or savegame is None:
             return
 
-        result = install_pack(pack, savegame, backup=dlg.backup_enabled())
+        result = install_pack(pack, savegame, backup=panel.backup_enabled())
         if result.installed:
             lines = [
                 f"{len(result.installed)} fichier(s) installé(s) dans "
@@ -965,9 +1116,17 @@ class MainWindow(QMainWindow):
         except KeyError:
             mods_dir = None
         self._reconcile_after_game()
-        # Analyse du log FS25 de la session qui vient de se terminer.
+        # Analyse du log FS25 de la session qui vient de se terminer : on ouvre
+        # l'onglet Log uniquement si des problèmes sont détectés.
         if mods_dir is not None:
-            self._show_log_report(mods_dir, only_if_issues=True)
+            from .profiles.log_analyzer import analyze_log, log_path_for
+
+            log_path = log_path_for(mods_dir)
+            if log_path.is_file() and analyze_log(log_path):
+                self._show_feature_tab(self._TAB_LOG)
+                self._status("Log FS25 : problèmes détectés — voir l'onglet « Log FS25 ».")
+            else:
+                self._status("Log FS25 : aucun problème détecté.")
 
     def _reconcile_after_game(self) -> None:
         if self.state.catalog is None or self._watching_for_profile is None:

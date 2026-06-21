@@ -81,6 +81,41 @@ class ActivateWorker(QObject):
         self.finished.emit(report, launched)
 
 
+class TestRunnerWorker(QObject):
+    """Validate a list of mod ``.zip`` files (built-in checks + optional TestRunner)."""
+
+    progress = Signal(int, int, str)  # done, total, current filename
+    finished = Signal(object)         # list[ModTestResult]
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        zip_paths: list[Path],
+        *,
+        xsd_path: Path | None = None,
+        testrunner_exe: Path | None = None,
+    ) -> None:
+        super().__init__()
+        self._zip_paths = zip_paths
+        self._xsd_path = xsd_path
+        self._testrunner_exe = testrunner_exe
+
+    def run(self) -> None:
+        from .profiles.testrunner import validate_mods
+
+        try:
+            results = validate_mods(
+                self._zip_paths,
+                xsd_path=self._xsd_path,
+                testrunner_exe=self._testrunner_exe,
+                progress=lambda done, total, name: self.progress.emit(done, total, name),
+            )
+        except Exception as exc:  # noqa: BLE001 — surface any failure to UI
+            self.failed.emit(str(exc))
+            return
+        self.finished.emit(results)
+
+
 class GameWatcher(QObject):
     """Poll for the FS process; emit :attr:`stopped` once it terminates.
 

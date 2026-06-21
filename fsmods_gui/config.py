@@ -59,6 +59,7 @@ class GameProfile:
     config_backup_dir: Path | None = None  # cloud-synced folder to mirror profiles+collections
     downloads_dir: Path | None = None  # override; defaults to the user's Downloads folder
     inbox_dir: Path | None = None  # override; defaults to <library_dir>/_inbox
+    testrunner_exe: Path | None = None  # Giants TestRunner.exe (GDN) for mod validation
 
     @property
     def library_mods_dir(self) -> Path | None:
@@ -203,6 +204,10 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
         inbox_dir: Path | None = None
         if inbox_raw and not str(inbox_raw).startswith("/path/to/"):
             inbox_dir = Path(inbox_raw).expanduser()
+        testrunner_raw = entry.get("testrunner_exe")
+        testrunner_exe: Path | None = None
+        if testrunner_raw and not str(testrunner_raw).startswith("/path/to/"):
+            testrunner_exe = Path(testrunner_raw).expanduser()
         steam_app_id_raw = entry.get("steam_app_id")
         steam_app_id: int | None = None
         if steam_app_id_raw is not None:
@@ -221,6 +226,7 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
             config_backup_dir=config_backup_dir,
             downloads_dir=downloads_dir,
             inbox_dir=inbox_dir,
+            testrunner_exe=testrunner_exe,
         )
     return profiles
 

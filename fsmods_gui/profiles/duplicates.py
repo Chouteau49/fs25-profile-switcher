@@ -22,10 +22,21 @@ from .catalog import Catalog, CatalogEntry
 
 # Markers appended by browsers/users when a file is duplicated, plus trailing
 # version tags. Stripping them reveals the underlying mod identity.
+#
+# These patterns are deliberately conservative: a bare trailing number (``Mod1``
+# vs ``Mod2``) or a two-part dotted number (``MAN_TGX_18.500``, a model name)
+# is NOT a copy/version marker — stripping those merged genuinely different
+# mods. We only strip what unambiguously marks a copy or a version.
 _COPY_SUFFIX_RE = re.compile(r"\s*\((\d+)\)$")  # " (1)", " (2)"
-_VERSION_SUFFIX_RE = re.compile(r"[\s_-]*v?\d+(?:[._]\d+)+$", re.IGNORECASE)  # "_v1.2.3"
+# Explicit version tag with a "v": "_v1", "_v1.2.3", " v2_0".
+_VERSION_V_RE = re.compile(r"[\s_-]*v\d+(?:[._]\d+)*$", re.IGNORECASE)
+# Bare dotted version with 3+ components: "1.0.0.0", "1.2.3" — but NOT a
+# two-part number like "18.500" (truck/engine model), which stays part of the name.
+_VERSION_BARE_RE = re.compile(r"[\s_-]*\d+(?:[._]\d+){2,}$")
+# Words users append when keeping an extra copy. No bare "\d+" and no
+# "new/final" here — those are too often part of the real mod name.
 _WORD_SUFFIX_RE = re.compile(
-    r"[\s_-]*(copy|copie|copy\d+|old|ancien|backup|bak|new|nouveau|final|\d+)$",
+    r"[\s_-]*(copy\d*|copie\d*|old|ancien|backup|bak)$",
     re.IGNORECASE,
 )
 
@@ -45,7 +56,8 @@ def normalize_stem(filename: str) -> str:
     for _ in range(4):
         before = stem
         stem = _COPY_SUFFIX_RE.sub("", stem)
-        stem = _VERSION_SUFFIX_RE.sub("", stem)
+        stem = _VERSION_V_RE.sub("", stem)
+        stem = _VERSION_BARE_RE.sub("", stem)
         stem = _WORD_SUFFIX_RE.sub("", stem)
         stem = stem.strip(" _-")
         if stem == before:
@@ -54,14 +66,21 @@ def normalize_stem(filename: str) -> str:
 
 
 def _content_key(entry: CatalogEntry) -> str | None:
-    """A (title, author) identity, or ``None`` when too weak to be reliable."""
+    """A (title, author) identity, or ``None`` when too weak to be reliable.
+
+    Both a real title *and* a real author are required: a title alone is too
+    weak — two unrelated mods sharing a generic title ("Trailer", "Pack") and
+    carrying no author would otherwise be grouped as a false duplicate.
+    """
     title = (entry.title or "").strip().lower()
     author = (entry.author or "").strip().lower()
     if not title or title == entry.filename.lower():
         return None
     if len(title) < 3:
         return None
-    return f"{title} {author}"
+    if not author:
+        return None
+    return f"{title}\x00{author}"
 
 
 @dataclass
