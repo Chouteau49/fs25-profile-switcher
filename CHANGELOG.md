@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0] - 2026-06-22
+
+### Added
+
+- **« 🧪 Tester les mods » : supprimer les mods en erreur depuis les résultats** : le tableau passe en sélection multiple et deux boutons apparaissent sous la liste — **« 🗑 Supprimer tous les KO »** (efface d'un coup tous les mods en ❌ KO ; actif seulement s'il y en a) et **« 🗑 Supprimer la sélection »**. La suppression réutilise le flux existant (confirmation, retrait du `.zip` du disque + de tous les profils et collections), puis **retire les lignes effacées** du tableau. Annuler la confirmation ne retire rien. Signal `delete_requested` côté vue, handler `_delete_from_testrunner` côté fenêtre.
+- **« 📥 Nouveaux mods » : tester les mods AVANT de les charger dans la bibliothèque** : nouveau bouton **« 🧪 Tester les mods »** qui valide les vignettes sélectionnées (ou toutes) directement depuis le dossier de téléchargement, sans rien importer. Chaque vignette reçoit un **badge ✅/⚠/❌**, le détail des contrôles passe dans l'**infobulle**, les KO sont colorés en rouge, et un bandeau récapitule « X OK · Y à vérifier · Z KO » en rappelant qu'on peut nettoyer les KO via le bouton **« 🗑 Supprimer le téléchargement »** déjà présent. Réutilise le `testrunner_exe` de la config si défini, sinon les contrôles intégrés. Signal `test_requested`, handler `_test_new_mods` (worker `TestRunnerWorker` en tâche de fond).
+
+### Build / Release
+
+- Version passée de `0.2.9` à `0.3.0`.
+
 ## [0.2.9] - 2026-06-22
 
 ### Added

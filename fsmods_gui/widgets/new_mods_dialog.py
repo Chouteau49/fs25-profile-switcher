@@ -35,7 +35,14 @@ from ..profiles.inbox import (
     PendingMod,
     delete_source,
 )
+from ..profiles.testrunner import (
+    STATUS_KO as TEST_KO,
+    STATUS_OK as TEST_OK,
+    STATUS_WARN as TEST_WARN,
+)
 from ..state import AppState, ImportPlan
+
+_TEST_BADGE = {TEST_OK: "✅", TEST_WARN: "⚠", TEST_KO: "❌"}
 
 _ROLE_PENDING = int(Qt.ItemDataRole.UserRole)
 _ROLE_SLUG = int(Qt.ItemDataRole.UserRole) + 1
@@ -47,6 +54,7 @@ class NewModsPanel(QWidget):
 
     rescan_requested = Signal()
     import_requested = Signal(list)  # list[ImportPlan] — handled in place, panel stays open
+    test_requested = Signal(list)    # list[Path] — validate mods before importing them
 
     def __init__(
         self,
@@ -59,6 +67,8 @@ class NewModsPanel(QWidget):
 
         # filename -> {"p": set[slug], "c": set[slug]}
         self._assign: dict[str, dict[str, set[str]]] = {}
+        # filename -> test status (TEST_OK / TEST_WARN / TEST_KO)
+        self._test_status: dict[str, str] = {}
         self._suppress = False
 
         # ---- left: pending mods grid
@@ -94,6 +104,14 @@ class NewModsPanel(QWidget):
         for b in (all_btn, none_btn, check_btn, uncheck_btn):
             sel_row.addWidget(b)
         sel_row.addStretch(1)
+        self.test_btn = QPushButton("🧪 Tester les mods", self)
+        self.test_btn.setToolTip(
+            "Valider les mods sélectionnés (ou tous) AVANT de les importer : "
+            "intégrité du zip, modDesc.xml, icône, textures… Un badge ✅/⚠/❌ "
+            "apparaît sur chaque vignette ; le détail est dans l'infobulle."
+        )
+        self.test_btn.clicked.connect(self._on_test)
+        sel_row.addWidget(self.test_btn)
         self.delete_dl_btn = QPushButton("🗑 Supprimer le téléchargement", self)
         self.delete_dl_btn.setToolTip(
             "Supprimer le fichier .zip sélectionné de son dossier de téléchargement "
@@ -177,6 +195,7 @@ class NewModsPanel(QWidget):
         self._suppress = True
         self.grid.clear()
         self._assign.clear()
+        self._test_status.clear()
         for pm in pending:
             entry = pm.entry
             # New mods and updates are worth importing → checked by default.
@@ -194,17 +213,7 @@ class NewModsPanel(QWidget):
                 item.setIcon(icon)
             if pm.status == STATUS_DUPLICATE:
                 item.setForeground(QBrush(QColor("#999")))
-            badge = "🗺 " if (entry and entry.is_map) else ""
-            cat = entry.category if entry else ""
-            ver = (
-                f" · v{entry.version}"
-                if entry and entry.version and entry.version != "0.0.0.0"
-                else ""
-            )
-            item.setToolTip(
-                f"{badge}{pm.filename}\n{cat}{ver}\n"
-                f"Statut : {pm.status_label}\nSource : {pm.source_label}"
-            )
+            item.setToolTip(self._base_tooltip(pm))
             self._assign[pm.filename] = {"p": set(), "c": set()}
             self.grid.addItem(item)
         self._suppress = False
@@ -252,17 +261,34 @@ class NewModsPanel(QWidget):
         STATUS_DUPLICATE: "≡ déjà en biblio",
     }
 
+    @staticmethod
+    def _base_tooltip(pm: PendingMod) -> str:
+        entry = pm.entry
+        badge = "🗺 " if (entry and entry.is_map) else ""
+        cat = entry.category if entry else ""
+        ver = (
+            f" · v{entry.version}"
+            if entry and entry.version and entry.version != "0.0.0.0"
+            else ""
+        )
+        return (
+            f"{badge}{pm.filename}\n{cat}{ver}\n"
+            f"Statut : {pm.status_label}\nSource : {pm.source_label}"
+        )
+
     def _card_text(self, pm: PendingMod, checked: bool) -> str:
         title = pm.entry.display_title if pm.entry else pm.filename
         n = 0
         a = self._assign.get(pm.filename)
         if a:
             n = len(a["p"]) + len(a["c"])
+        test_badge = _TEST_BADGE.get(self._test_status.get(pm.filename), "")
+        test_mark = f"{test_badge} " if test_badge else ""
         mark = "✓ " if checked else ""
         tag = self._STATUS_TAG.get(pm.status, "")
         bits = [b for b in (tag, f"{n} cible(s)" if n else "") if b]
         suffix = "  ·  " + "  ·  ".join(bits) if bits else ""
-        return f"{mark}{title}{suffix}"
+        return f"{test_mark}{mark}{title}{suffix}"
 
     def _update_count(self) -> None:
         total = self.grid.count()
@@ -483,6 +509,67 @@ class NewModsPanel(QWidget):
             QMessageBox.warning(
                 self, "Suppression : erreurs", "\n".join(errors[:10])
             )
+
+    # ------------------------------------------------------------- test mods
+
+    def _on_test(self) -> None:
+        """Ask the owner to validate the selected (or all) mods before import."""
+        items = self._target_items()
+        paths = [it.data(_ROLE_PENDING).source_path for it in items]
+        if not paths:
+            self.flash_status("Aucun mod à tester.", error=True)
+            return
+        self.test_requested.emit(paths)
+
+    def set_test_running(self, running: bool) -> None:
+        self.test_btn.setEnabled(not running)
+        if running:
+            self.flash_status("🧪 Validation des mods en cours…")
+
+    def set_test_progress(self, done: int, total: int, name: str) -> None:
+        if name:
+            self.flash_status(f"🧪 Validation… ({done}/{total}) {name}")
+
+    def set_test_results(self, results: list) -> None:
+        """Render per-mod test verdicts as a badge + tooltip detail on each card."""
+        by_name = {r.filename: r for r in results}
+        self._suppress = True
+        for i in range(self.grid.count()):
+            item = self.grid.item(i)
+            pm = item.data(_ROLE_PENDING)
+            res = by_name.get(pm.filename)
+            if res is None:
+                continue
+            self._test_status[pm.filename] = res.status
+            item.setText(
+                self._card_text(pm, item.checkState() == Qt.CheckState.Checked)
+            )
+            item.setToolTip(self._base_tooltip(pm) + "\n\n" + self._test_detail(res))
+            if res.status == TEST_KO:
+                item.setForeground(QBrush(QColor("#c0392b")))
+        self._suppress = False
+        ok = sum(1 for r in results if r.status == TEST_OK)
+        warn = sum(1 for r in results if r.status == TEST_WARN)
+        ko = sum(1 for r in results if r.status == TEST_KO)
+        self.flash_status(
+            f"🧪 {len(results)} mod(s) testé(s) — ✅ {ok} OK · ⚠ {warn} à vérifier · "
+            f"❌ {ko} KO. Astuce : supprime les KO via « 🗑 Supprimer le téléchargement ».",
+            error=ko > 0,
+        )
+
+    @staticmethod
+    def _test_detail(res) -> str:
+        lines = [f"Test : {res.summary()}"]
+        for chk in res.checks[:6]:
+            prefix = _TEST_BADGE.get(
+                {"ok": TEST_OK, "warn": TEST_WARN, "error": TEST_KO}.get(chk.level),
+                "•",
+            )
+            line = f"{prefix} {chk.label}"
+            if chk.detail:
+                line += f" — {chk.detail}"
+            lines.append(line)
+        return "\n".join(lines)
 
     def flash_status(self, message: str, *, error: bool = False) -> None:
         color = "#c53030" if error else "#2f855a"

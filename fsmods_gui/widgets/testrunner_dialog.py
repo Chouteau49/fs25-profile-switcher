@@ -69,6 +69,8 @@ class TestRunnerPanel(QWidget):
 
     # Emitted on "Lancer les tests": (scope, testrunner_exe_path_or_empty).
     run_requested = Signal(str, str)
+    # Emitted to delete the given filenames from the library (disk + configs).
+    delete_requested = Signal(list)
 
     def __init__(self, state, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -133,7 +135,7 @@ class TestRunnerPanel(QWidget):
         self.table.setHorizontalHeaderLabels(["Statut", "Mod", "Résumé"])
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.currentCellChanged.connect(self._on_row_changed)
@@ -148,6 +150,23 @@ class TestRunnerPanel(QWidget):
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
 
+        # ---- delete actions (remove faulty mods from the library)
+        self.delete_sel_btn = QPushButton("🗑 Supprimer la sélection", self)
+        self.delete_sel_btn.setToolTip(
+            "Effacer définitivement le(s) mod(s) sélectionné(s) du disque "
+            "(retirés aussi de tous les profils et collections)."
+        )
+        self.delete_sel_btn.clicked.connect(self._emit_delete_selected)
+        self.delete_ko_btn = QPushButton("🗑 Supprimer tous les KO", self)
+        self.delete_ko_btn.setToolTip(
+            "Effacer de la bibliothèque tous les mods en erreur (❌ KO) listés."
+        )
+        self.delete_ko_btn.clicked.connect(self._emit_delete_ko)
+        delete_row = QHBoxLayout()
+        delete_row.addStretch(1)
+        delete_row.addWidget(self.delete_sel_btn)
+        delete_row.addWidget(self.delete_ko_btn)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(intro)
@@ -156,6 +175,8 @@ class TestRunnerPanel(QWidget):
         layout.addWidget(self.progress)
         layout.addLayout(filter_row)
         layout.addWidget(split, 1)
+        layout.addLayout(delete_row)
+        self._update_delete_buttons()
 
     # ------------------------------------------------------------------ actions
 
@@ -170,6 +191,40 @@ class TestRunnerPanel(QWidget):
     def _emit_run(self) -> None:
         scope = self.scope_combo.currentData()
         self.run_requested.emit(scope, self.exe_edit.text().strip())
+
+    def _selected_filenames(self) -> list[str]:
+        out: list[str] = []
+        for index in self.table.selectionModel().selectedRows():
+            item = self.table.item(index.row(), 0)
+            idx = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+            if idx is not None and idx < len(self._results):
+                out.append(self._results[idx].filename)
+        return out
+
+    def _emit_delete_selected(self) -> None:
+        names = self._selected_filenames()
+        if names:
+            self.delete_requested.emit(names)
+
+    def _emit_delete_ko(self) -> None:
+        names = [r.filename for r in self._results if r.status == STATUS_KO]
+        if names:
+            self.delete_requested.emit(names)
+
+    def _update_delete_buttons(self) -> None:
+        has_ko = any(r.status == STATUS_KO for r in self._results)
+        self.delete_ko_btn.setEnabled(has_ko)
+        self.delete_sel_btn.setEnabled(bool(self._results))
+
+    def remove_results(self, filenames: list[str]) -> None:
+        """Drop the given mods from the results (after they were deleted)."""
+        fnset = {f for f in filenames if f}
+        if not fnset:
+            return
+        self._results = [r for r in self._results if r.filename not in fnset]
+        self._update_summary()
+        self._populate_table()
+        self._update_delete_buttons()
 
     # ----------------------------------------------------- driven by main window
 
@@ -192,6 +247,7 @@ class TestRunnerPanel(QWidget):
         self.progress.setVisible(False)
         self._update_summary()
         self._populate_table()
+        self._update_delete_buttons()
 
     def _update_summary(self) -> None:
         ok = sum(1 for r in self._results if r.status == STATUS_OK)

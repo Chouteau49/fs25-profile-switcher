@@ -390,7 +390,48 @@ class MainWindow(QMainWindow):
         panel.import_requested.connect(
             lambda plans: self._apply_new_mods_import(panel, plans)
         )
+        panel.test_requested.connect(
+            lambda paths, p=panel: self._test_new_mods(p, paths)
+        )
         return panel
+
+    def _test_new_mods(self, panel, paths: list) -> None:
+        """Validate downloaded mods (source paths) before they enter the library."""
+        from pathlib import Path as _Path
+
+        zip_paths = [_Path(p) for p in paths if p]
+        if not zip_paths:
+            return
+        game = self.state.game
+        exe_path = game.testrunner_exe
+        if exe_path is not None and not exe_path.is_file():
+            exe_path = None
+        xsd_path = game.find_moddesc_xsd()
+
+        panel.set_test_running(True)
+        self._testrunner_worker = TestRunnerWorker(
+            zip_paths,
+            xsd_path=xsd_path,
+            testrunner_exe=exe_path,
+            editor_exe=game.editor_exe,
+        )
+        self._testrunner_worker.progress.connect(panel.set_test_progress)
+        self._testrunner_worker.finished.connect(
+            lambda results, p=panel: self._on_new_mods_test_done(p, results)
+        )
+        self._testrunner_worker.failed.connect(
+            lambda msg, p=panel: (p.set_test_running(False), p.flash_status(msg, error=True))
+        )
+        self._testrunner_thread = make_worker_thread(self._testrunner_worker)
+        self._testrunner_thread.start()
+        self._status(f"Validation de {len(zip_paths)} mod(s) téléchargé(s)…")
+
+    def _on_new_mods_test_done(self, panel, results: object) -> None:
+        panel.set_test_running(False)
+        if not isinstance(results, list):
+            return
+        panel.set_test_results(results)
+        self._status(f"Test des nouveaux mods terminé : {len(results)} mod(s).")
 
     def _build_testrunner_panel(self) -> QWidget:
         try:
@@ -410,8 +451,28 @@ class MainWindow(QMainWindow):
         panel.run_requested.connect(
             lambda scope, exe, p=panel: self._run_testrunner(p, scope, exe)
         )
+        panel.delete_requested.connect(
+            lambda fns, p=panel: self._delete_from_testrunner(p, fns)
+        )
         self._testrunner_panel = panel
         return panel
+
+    def _delete_from_testrunner(self, panel, filenames: list[str]) -> None:
+        """Delete faulty mods from the library, then drop them from the results."""
+        if not filenames or self.state.catalog is None:
+            return
+        entries = [
+            self.state.catalog.entries[f]
+            for f in filenames
+            if f in self.state.catalog.entries
+        ]
+        if not entries:
+            return
+        self._on_delete_mods(entries)
+        # Drop from the panel whatever actually got deleted (gone from catalog).
+        deleted = [f for f in filenames if f not in self.state.catalog.entries]
+        if deleted:
+            panel.remove_results(deleted)
 
     # ========================================================= test runner
 
