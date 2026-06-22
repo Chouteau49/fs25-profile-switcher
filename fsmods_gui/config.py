@@ -60,6 +60,7 @@ class GameProfile:
     downloads_dir: Path | None = None  # override; defaults to the user's Downloads folder
     inbox_dir: Path | None = None  # override; defaults to <library_dir>/_inbox
     testrunner_exe: Path | None = None  # Giants TestRunner.exe (GDN) for mod validation
+    editor_exe: Path | None = None      # GIANTS Editor exe; auto-detected if None
 
     @property
     def library_mods_dir(self) -> Path | None:
@@ -208,6 +209,10 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
         testrunner_exe: Path | None = None
         if testrunner_raw and not str(testrunner_raw).startswith("/path/to/"):
             testrunner_exe = Path(testrunner_raw).expanduser()
+        editor_raw = entry.get("editor_exe")
+        editor_exe: Path | None = None
+        if editor_raw and not str(editor_raw).startswith("/path/to/"):
+            editor_exe = Path(editor_raw).expanduser()
         steam_app_id_raw = entry.get("steam_app_id")
         steam_app_id: int | None = None
         if steam_app_id_raw is not None:
@@ -227,6 +232,7 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
             downloads_dir=downloads_dir,
             inbox_dir=inbox_dir,
             testrunner_exe=testrunner_exe,
+            editor_exe=editor_exe,
         )
     return profiles
 

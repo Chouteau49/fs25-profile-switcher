@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QThread
+from PySide6.QtCore import QByteArray, QSettings, QSize, Qt, QThread
 from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -219,6 +219,33 @@ class MainWindow(QMainWindow):
         # ---- initial load
         self._refresh_profiles_ui()
         self._start_scan()
+
+        # Restore saved geometry (position + size)
+        settings = QSettings()
+        geometry: QByteArray = settings.value("mainWindow/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        QSettings().setValue("mainWindow/geometry", self.saveGeometry())
+        # Stop watcher timer
+        try:
+            if hasattr(self, "_watcher") and self._watcher is not None:
+                self._watcher.stop()
+        except Exception:
+            pass
+
+        # Gracefully stop background threads so Qt doesn't warn on exit
+        for attr in ("_scan_thread", "_activate_thread", "_testrunner_thread"):
+            thread = getattr(self, attr, None)
+            try:
+                if thread is not None and isinstance(thread, QThread) and thread.isRunning():
+                    thread.quit()
+                    thread.wait(3000)  # wait up to 3s
+            except Exception:
+                pass
+
+        super().closeEvent(event)
 
     # ============================================================ helpers
 
@@ -433,7 +460,10 @@ class MainWindow(QMainWindow):
 
         panel.set_running(True)
         self._testrunner_worker = TestRunnerWorker(
-            zip_paths, xsd_path=xsd_path, testrunner_exe=exe_path
+            zip_paths,
+            xsd_path=xsd_path,
+            testrunner_exe=exe_path,
+            editor_exe=self.state.game.editor_exe,
         )
         self._testrunner_worker.progress.connect(panel.set_progress)
         self._testrunner_worker.finished.connect(

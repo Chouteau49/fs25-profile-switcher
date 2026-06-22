@@ -94,11 +94,13 @@ class TestRunnerWorker(QObject):
         *,
         xsd_path: Path | None = None,
         testrunner_exe: Path | None = None,
+        editor_exe: Path | None = None,
     ) -> None:
         super().__init__()
         self._zip_paths = zip_paths
         self._xsd_path = xsd_path
         self._testrunner_exe = testrunner_exe
+        self._editor_exe = editor_exe
 
     def run(self) -> None:
         from .profiles.testrunner import validate_mods
@@ -108,6 +110,7 @@ class TestRunnerWorker(QObject):
                 self._zip_paths,
                 xsd_path=self._xsd_path,
                 testrunner_exe=self._testrunner_exe,
+                editor_exe=self._editor_exe,
                 progress=lambda done, total, name: self.progress.emit(done, total, name),
             )
         except Exception as exc:  # noqa: BLE001 — surface any failure to UI

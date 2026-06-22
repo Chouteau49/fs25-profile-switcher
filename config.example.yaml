@@ -43,7 +43,11 @@ games:
     # Optional: path to Giants TestRunner.exe (from the Giants Developer Network)
     # used by the "🧪 Tester les mods" view. Leave unset to rely only on the
     # built-in static checks (zip integrity, modDesc.xml, icon, textures, size).
-    # testrunner_exe: "C:/Giants/TestRunner/TestRunner.exe"
+    # testrunner_exe: "C:/Giants/TestRunner/TestRunner_public.exe"
+
+    # Optional: path to GIANTS Editor exe. Used by TestRunner for shader/editor checks.
+    # Auto-detected from C:/Program Files/GIANTS Software/GIANTS_Editor_*/ if not set.
+    # editor_exe: "C:/Program Files/GIANTS Software/GIANTS_Editor_10.5.1/editor.exe"
 
   fs22:
     mods_dir: "C:/Users/<you>/Documents/My Games/FarmingSimulator2022/mods"

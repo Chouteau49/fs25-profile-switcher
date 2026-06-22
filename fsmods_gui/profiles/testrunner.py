@@ -19,6 +19,7 @@ from __future__ import annotations
 import struct
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
@@ -342,34 +343,139 @@ def _check_big_files(zf: zipfile.ZipFile, max_file_mb: int, checks: list[Check])
 # ========================================================== Giants TestRunner
 
 
-def run_testrunner(
-    exe_path: Path, mod_path: Path, *, timeout_s: int = _TESTRUNNER_TIMEOUT_S
-) -> tuple[int | None, str]:
-    """Run Giants ``TestRunner.exe`` on a mod; return ``(returncode, output)``.
+def _find_giants_editor() -> Path | None:
+    """Return the newest GIANTS Editor ``editor.exe`` found in standard paths."""
+    if sys.platform != "win32":
+        return None
 
-    Defensive on purpose: the exact CLI/output format isn't publicly stable, so
-    we just pass the mod path, capture stdout+stderr, and let the caller fold the
-    exit code into the verdict. Returns ``(None, message)`` if it can't be run.
+    def _version_key(p: Path) -> tuple[int, ...]:
+        """Extract numeric version tuple from folder name for reliable sorting."""
+        import re
+        return tuple(int(n) for n in re.findall(r"\d+", p.name))
+
+    parents = [
+        Path("C:/Program Files/GIANTS Software"),
+        Path("C:/Program Files (x86)/GIANTS Software"),
+    ]
+    for parent in parents:
+        if not parent.is_dir():
+            continue
+        editors = sorted(
+            (p for p in parent.glob("GIANTS_Editor_*") if p.is_dir()),
+            key=_version_key,
+            reverse=True,  # highest version first
+        )
+        for editor_dir in editors:
+            exe = editor_dir / "editor.exe"
+            if exe.is_file():
+                return exe
+    return None
+
+
+def _parse_testrunner_xml(xml_path: Path) -> str:
+    """Turn a TestRunner XML result file into a readable text summary."""
+    try:
+        root = ET.parse(xml_path).getroot()
+    except ET.ParseError as exc:
+        return f"Erreur de lecture du rapport XML : {exc}"
+
+    lines: list[str] = []
+    results = root.find("results")
+    if results is None:
+        return "Rapport XML sans section <results>."
+
+    outcome = results.get("testrunOutcome", "?")
+    lines.append(f"Résultat global : {outcome}")
+
+    dc = results.find("dataCollectorResults")
+    if dc is not None:
+        lines.append(
+            f"Collecteurs : {dc.get('total','?')} total, "
+            f"{dc.get('succeeded','?')} OK, {dc.get('failed','?')} échec(s)"
+        )
+
+    mr = results.find("moduleResults")
+    if mr is not None:
+        lines.append(
+            f"Modules : {mr.get('total','?')} total, "
+            f"{mr.get('succeeded','?')} OK, {mr.get('failed','?')} échec(s)"
+        )
+        for group in mr.findall("testGroup"):
+            name = group.get("name", "?")
+            passed = group.get("passed", "True")
+            if passed == "False":
+                lines.append(f"  ❌ {name}")
+                for container in group:
+                    for item in container:
+                        text = (item.text or "").strip()
+                        if text:
+                            lines.append(f"    • {item.tag} : {text}")
+            else:
+                lines.append(f"  ✅ {name}")
+
+    return "\n".join(lines)
+
+
+def run_testrunner(
+    exe_path: Path,
+    mod_path: Path,
+    *,
+    editor_exe: Path | None = None,
+    timeout_s: int = _TESTRUNNER_TIMEOUT_S,
+) -> tuple[int | None, str]:
+    """Run Giants ``TestRunner.exe`` on a mod; return ``(returncode, summary)``.
+
+    Uses a temporary output directory so the results file is always clean.
+    Passes ``--noPause --disableAutoOpen --skipGuiPrograms`` for silent
+    headless execution, and asks for XML-only output to parse the verdict.
+    ``editor_exe`` is the path to GIANTS Editor; if not provided, common
+    installation directories are searched automatically.
+    Returns ``(None, message)`` if the tool cannot be run.
     """
     if not exe_path.is_file():
         return None, f"TestRunner introuvable : {exe_path}"
-    try:
-        completed = subprocess.run(
-            [str(exe_path), str(mod_path)],
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            cwd=str(exe_path.parent),
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            if sys.platform == "win32"
-            else 0,
-        )
-    except subprocess.TimeoutExpired:
-        return None, f"TestRunner : délai dépassé (> {timeout_s} s)."
-    except OSError as exc:
-        return None, f"TestRunner : exécution impossible ({exc})."
-    output = (completed.stdout or "") + (completed.stderr or "")
-    return completed.returncode, output.strip()
+
+    resolved_editor = editor_exe or _find_giants_editor()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        cmd = [
+            str(exe_path),
+            str(mod_path),
+            "--noPause",
+            "--disableAutoOpen",
+            "--skipGuiPrograms",
+            "--outputPath", str(tmp_path),
+            "--outputFormats", "XML", "False",
+        ]
+        if resolved_editor is not None:
+            cmd.extend(["-e", str(resolved_editor)])
+        try:
+            completed = subprocess.run(
+                cmd,
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                timeout=timeout_s,
+                cwd=str(exe_path.parent),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                if sys.platform == "win32"
+                else 0,
+            )
+        except subprocess.TimeoutExpired:
+            return None, f"TestRunner : délai dépassé (> {timeout_s} s)."
+        except OSError as exc:
+            return None, f"TestRunner : exécution impossible ({exc})."
+
+        xml_files = list(tmp_path.glob("testResult_*.xml"))
+        if xml_files:
+            summary = _parse_testrunner_xml(xml_files[0])
+        else:
+            summary = ((completed.stdout or "") + (completed.stderr or "")).strip()
+            if not summary:
+                summary = f"Aucun rapport généré (code {completed.returncode})."
+
+    return completed.returncode, summary
 
 
 def validate_mods(
@@ -377,6 +483,7 @@ def validate_mods(
     *,
     xsd_path: Path | None = None,
     testrunner_exe: Path | None = None,
+    editor_exe: Path | None = None,
     progress=None,
 ) -> list[ModTestResult]:
     """Validate several mods. ``progress(done, total, filename)`` is optional."""
@@ -387,7 +494,7 @@ def validate_mods(
             progress(i, total, zip_path.name)
         result = validate_mod(zip_path, xsd_path=xsd_path)
         if testrunner_exe is not None:
-            code, output = run_testrunner(testrunner_exe, zip_path)
+            code, output = run_testrunner(testrunner_exe, zip_path, editor_exe=editor_exe)
             result.testrunner_returncode = code
             result.testrunner_output = output
         results.append(result)

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.9] - 2026-06-22
+
+### Added
+
+- **TestRunner Giants : invocation réelle + auto-détection de l'éditeur** : « 🧪 Tester les mods » sait désormais piloter `TestRunner.exe` correctement plutôt que de simplement lui passer le chemin du mod. Il l'exécute dans un **dossier de sortie temporaire** (résultats toujours propres), demande une sortie **XML** (`--outputFormats XML`), ferme `stdin` (`DEVNULL`) pour éviter tout blocage en mode headless, puis **lit le rapport `testResult_*.xml`** et en extrait un résumé lisible (`_parse_testrunner_xml`). Le **GIANTS Editor** requis par TestRunner est **auto-détecté** (le plus récent `GIANTS_Editor_*/editor.exe` sous `C:/Program Files/GIANTS Software/`), ou forçable via config.
+- **Config : chemin du GIANTS Editor paramétrable** : `games.<jeu>.editor_exe` (optionnel ; auto-détecté si absent). Voir `config.example.yaml`.
+
+### Changed
+
+- **Fenêtre : position et taille mémorisées d'une session à l'autre** : la géométrie est sauvegardée à la fermeture (`QSettings`) et restaurée au lancement.
+- **Arrêt propre des tâches de fond** : à la fermeture de la fenêtre, le surveillant de jeu et les threads de scan / activation / test sont arrêtés et attendus (jusqu'à 3 s) — fini les avertissements Qt « QThread destroyed while still running » en quittant.
+
 ## [0.2.8] - 2026-06-21
 
 ### Added
