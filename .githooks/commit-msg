@@ -1,0 +1,21 @@
+#!/bin/sh
+# Strip AI-attribution trailers from every commit message.
+#
+# Removes "Co-Authored-By:" lines, "Generated with … Claude/Claude Code"
+# credits, the robot emoji line and any anthropic noreply address — whatever
+# the source (CLI, IDE, scripts). Factual mentions of "Claude" in a subject or
+# body (e.g. "ignore Claude Code local settings") are left untouched: only the
+# specific attribution patterns are matched.
+#
+# Installed via:  git config core.hooksPath .githooks
+msg_file="$1"
+[ -n "$msg_file" ] && [ -f "$msg_file" ] || exit 0
+
+sed -i \
+  -e '/^[[:space:]]*[Cc]o-[Aa]uthored-[Bb]y:/d' \
+  -e '/[Gg]enerated with.*[Cc]laude/d' \
+  -e '/noreply@anthropic\.com/d' \
+  -e '/🤖/d' \
+  "$msg_file"
+
+exit 0
