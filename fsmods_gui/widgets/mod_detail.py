@@ -15,6 +15,19 @@ from PySide6.QtWidgets import (
 
 from ..profiles.catalog import CatalogEntry
 
+# Allow the user to select + copy the text of a label (mouse and keyboard).
+_SELECTABLE = (
+    Qt.TextInteractionFlag.TextSelectableByMouse
+    | Qt.TextInteractionFlag.TextSelectableByKeyboard
+)
+
+
+def _selectable(label: QLabel) -> QLabel:
+    """Make a label's text selectable/copyable; return it for chaining."""
+    label.setTextInteractionFlags(_SELECTABLE)
+    return label
+
+
 class ModDetailDialog(QDialog):
     def __init__(self, entry: CatalogEntry, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -40,16 +53,18 @@ class ModDetailDialog(QDialog):
         info_layout = QVBoxLayout()
         title_label = QLabel(entry.display_title)
         title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #fff;")
-        info_layout.addWidget(title_label)
+        info_layout.addWidget(_selectable(title_label))
 
-        info_layout.addWidget(QLabel(f"<b>Version :</b> {entry.version}"))
-        info_layout.addWidget(QLabel(f"<b>Auteur :</b> {entry.author or 'Inconnu'}"))
-        info_layout.addWidget(QLabel(f"<b>Marque :</b> {entry.brand or 'N/A'}"))
-        info_layout.addWidget(QLabel(f"<b>Fichier :</b> {entry.filename}"))
+        cat_text = entry.category + (f" · {entry.type}" if entry.type else "")
+        info_layout.addWidget(_selectable(QLabel(f"<b>Catégorie :</b> {cat_text}")))
+        info_layout.addWidget(_selectable(QLabel(f"<b>Version :</b> {entry.version}")))
+        info_layout.addWidget(_selectable(QLabel(f"<b>Auteur :</b> {entry.author or 'Inconnu'}")))
+        info_layout.addWidget(_selectable(QLabel(f"<b>Marque :</b> {entry.brand or 'N/A'}")))
+        info_layout.addWidget(_selectable(QLabel(f"<b>Fichier :</b> {entry.filename}")))
         if entry.requires:
             dep_label = QLabel(f"<b>Dépendances :</b> {', '.join(entry.requires)}")
             dep_label.setWordWrap(True)
-            info_layout.addWidget(dep_label)
+            info_layout.addWidget(_selectable(dep_label))
         info_layout.addStretch()
         header.addLayout(info_layout, 1)
 
@@ -65,6 +80,8 @@ class ModDetailDialog(QDialog):
         self.desc_label.setWordWrap(True)
         self.desc_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.desc_label.setContentsMargins(10, 10, 10, 10)
+        # Let the user select the description text to copy it.
+        self.desc_label.setTextInteractionFlags(_SELECTABLE)
         
         # Priority to French, then English, then raw
         desc_text = entry.description_fr or entry.description_en or "Aucune description disponible."

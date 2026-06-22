@@ -111,6 +111,8 @@ class MainWindow(QMainWindow):
         self.editor = EditorPanel(self)
         self.editor.changed.connect(self._on_editor_changed)
         self.editor.mod_delete_requested.connect(self._on_delete_mods)
+        self.editor.add_to_profile_requested.connect(self._add_mods_to_profile)
+        self.editor.add_to_collection_requested.connect(self._add_mods_to_collection)
 
         self.activate_btn = QPushButton("  Activer & lancer", self)
         self.activate_btn.setMinimumHeight(50)
@@ -715,6 +717,117 @@ class MainWindow(QMainWindow):
         self._update_activate_btn_icon()
         self.state.backup_config()
         self._status(f"Profil enregistré : {path.name}")
+
+    def _add_mods_to_profile(self, filenames: list[str]) -> None:
+        """Add the given mods to a profile chosen by the user (e.g. from a collection)."""
+        filenames = [f for f in filenames if f]
+        if not filenames:
+            return
+        if not self.state.profiles:
+            QMessageBox.information(
+                self, "Aucun profil", "Crée d'abord un profil pour y ajouter des mods."
+            )
+            return
+        names = [p.name for p in self.state.profiles]
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Ajouter à un profil",
+            f"Ajouter {len(filenames)} mod(s) au profil :",
+            names,
+            0,
+            False,
+        )
+        if not ok or not choice:
+            return
+        prof = self.state.profiles[names.index(choice)]
+        added = 0
+        for fname in filenames:
+            entry = self.state.catalog.get(fname) if self.state.catalog else None
+            if entry is not None and entry.is_map:
+                if not prof.map_mod:
+                    prof.map_mod = fname
+                    added += 1
+                continue
+            if fname not in prof.mods:
+                prof.mods.append(fname)
+                if fname in prof.excluded_mods:
+                    prof.excluded_mods.remove(fname)
+                added += 1
+        if added:
+            prof.save()
+            self.state.backup_config()
+            # Reflect the change if that profile is the one being edited.
+            if (
+                self.state.current_profile is not None
+                and prof.slug == self.state.current_profile.slug
+            ):
+                self.editor.set_target(prof)
+            self._status(f"{added} mod(s) ajouté(s) au profil « {prof.name} ».")
+            QMessageBox.information(
+                self,
+                "Mods ajoutés",
+                f"{added} mod(s) ajouté(s) au profil « {prof.name} ».",
+            )
+        else:
+            self._status(f"Aucun mod ajouté : déjà présents dans « {prof.name} ».")
+
+    def _add_mods_to_collection(self, filenames: list[str]) -> None:
+        """Add the given mods to a collection chosen by the user (no duplicates)."""
+        filenames = [f for f in filenames if f]
+        if not filenames:
+            return
+        if not self.state.collections:
+            QMessageBox.information(
+                self,
+                "Aucune collection",
+                "Crée d'abord une collection pour y ajouter des mods.",
+            )
+            return
+        names = [c.name for c in self.state.collections]
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Ajouter à une collection",
+            f"Ajouter {len(filenames)} mod(s) à la collection :",
+            names,
+            0,
+            False,
+        )
+        if not ok or not choice:
+            return
+        col = self.state.collections[names.index(choice)]
+        added = 0
+        maps_skipped = 0
+        for fname in filenames:
+            entry = self.state.catalog.get(fname) if self.state.catalog else None
+            if entry is not None and entry.is_map:
+                maps_skipped += 1
+                continue
+            if fname not in col.mods:  # no duplicates
+                col.mods.append(fname)
+                added += 1
+        if added:
+            col.save()
+            self.state.backup_config()
+            # Refresh collection counts + the editor (inherited list / content).
+            self.editor.set_collections(self.state.collections)
+            self._refresh_collections_ui()
+            target = self.editor.current_target()
+            from .profiles.collection import Collection
+
+            if isinstance(target, Collection) and target.slug == col.slug:
+                self.editor.set_target(col)
+            self._status(f"{added} mod(s) ajouté(s) à la collection « {col.name} ».")
+        msg = (
+            f"{added} mod(s) ajouté(s) à la collection « {col.name} »."
+            if added
+            else f"Aucun mod ajouté : déjà présents dans « {col.name} »."
+        )
+        if maps_skipped:
+            msg += (
+                f"\n\n{maps_skipped} carte(s) ignorée(s) : une carte ne peut pas "
+                "faire partie d'une collection (c'est un choix propre à chaque profil)."
+            )
+        QMessageBox.information(self, "Ajouter à une collection", msg)
 
     # ========================================================== collections
 

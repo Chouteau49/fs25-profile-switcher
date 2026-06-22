@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import xml.etree.ElementTree as ET
 import zipfile
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -20,7 +21,234 @@ except ImportError:
     HAS_PILLOW = False
 
 CACHE_FILE_NAME = "index.json"
-CACHE_SCHEMA_VERSION = 20
+CACHE_SCHEMA_VERSION = 21
+
+
+# Giants ``storeData/category`` (first token, lowercased) → (French family, French
+# precise type). Built from the real vocabulary found across the library. The
+# *family* feeds the broad category filter; the *type* is the fine label shown
+# under each mod (e.g. "Véhicule · Tracteur"). Unknown categories fall back to a
+# keyword heuristic (:func:`_fallback_family`).
+_FS_CATEGORY_FR: dict[str, tuple[str, str]] = {
+    # --- Tracteurs & automoteurs ---
+    "tractorss": ("Véhicule", "Tracteur"),
+    "tractorsm": ("Véhicule", "Tracteur"),
+    "tractorsl": ("Véhicule", "Tracteur"),
+    "tractors": ("Véhicule", "Tracteur"),
+    "wheelloaders": ("Véhicule", "Chargeuse sur pneus"),
+    "telehandlers": ("Véhicule", "Télescopique"),
+    "skidsteers": ("Véhicule", "Chargeuse compacte"),
+    "trucks": ("Véhicule", "Camion"),
+    "cars": ("Véhicule", "Voiture"),
+    "pickups": ("Véhicule", "Pick-up"),
+    # --- Récolte ---
+    "harvesters": ("Véhicule", "Moissonneuse"),
+    "forageharvesters": ("Véhicule", "Ensileuse"),
+    "forestryharvesters": ("Véhicule", "Abatteuse forestière"),
+    "cutters": ("Véhicule", "Coupe"),
+    "cuttertrailers": ("Véhicule", "Chariot de coupe"),
+    "cornheaders": ("Véhicule", "Bec à maïs"),
+    "forageharvestercutters": ("Véhicule", "Bec d'ensilage"),
+    "potatoharvesting": ("Véhicule", "Récolteuse de pommes de terre"),
+    "beetharvesting": ("Véhicule", "Récolteuse de betteraves"),
+    "cottonvehicles": ("Véhicule", "Matériel coton"),
+    # --- Remorques & transport ---
+    "trailers": ("Véhicule", "Remorque"),
+    "trailerssemi": ("Véhicule", "Semi-remorque"),
+    "trailersflatbed": ("Véhicule", "Remorque plateau"),
+    "trailerschangingsystem": ("Véhicule", "Remorque porte-caisson"),
+    "tippers": ("Véhicule", "Benne"),
+    "augerwagons": ("Véhicule", "Trémie"),
+    "loaderwagons": ("Véhicule", "Autochargeuse"),
+    "animaltransport": ("Véhicule", "Bétaillère"),
+    "lowloaders": ("Véhicule", "Porte-engin"),
+    # --- Travail du sol & semis ---
+    "cultivators": ("Véhicule", "Déchaumeur"),
+    "plows": ("Véhicule", "Charrue"),
+    "subsoilers": ("Véhicule", "Décompacteur"),
+    "rollers": ("Véhicule", "Rouleau"),
+    "powerharrows": ("Véhicule", "Herse rotative"),
+    "seeders": ("Véhicule", "Semoir"),
+    "planters": ("Véhicule", "Planteuse"),
+    "sowingmachines": ("Véhicule", "Semoir"),
+    # --- Fertilisation & pulvérisation ---
+    "sprayers": ("Véhicule", "Pulvérisateur"),
+    "fertilizerspreaders": ("Véhicule", "Épandeur d'engrais"),
+    "manurespreaders": ("Véhicule", "Épandeur à fumier"),
+    "spreaders": ("Véhicule", "Épandeur"),
+    "slurrytanks": ("Véhicule", "Tonne à lisier"),
+    "slurrytools": ("Véhicule", "Outil à lisier"),
+    # --- Fourrage / fenaison / pressage ---
+    "mowers": ("Véhicule", "Faucheuse"),
+    "windrowers": ("Véhicule", "Andaineur"),
+    "tedders": ("Véhicule", "Faneuse"),
+    "balersround": ("Véhicule", "Presse à balles rondes"),
+    "balerssquare": ("Véhicule", "Presse à balles carrées"),
+    "balers": ("Véhicule", "Presse"),
+    "balewrappers": ("Véhicule", "Enrubanneuse"),
+    "baleloaders": ("Véhicule", "Chargeur de balles"),
+    "foragemixers": ("Véhicule", "Mélangeuse"),
+    # --- Chargeurs & outils portés ---
+    "frontloaders": ("Véhicule", "Chargeur frontal"),
+    "frontloadertools": ("Véhicule", "Outil de chargeur"),
+    "wheelloadertools": ("Véhicule", "Outil de chargeuse"),
+    "telehandlertools": ("Véhicule", "Outil de télescopique"),
+    "skidsteertools": ("Véhicule", "Outil de chargeuse compacte"),
+    # --- Spécifiques ---
+    "weights": ("Véhicule", "Masse"),
+    "grapetools": ("Véhicule", "Outil viticole"),
+    "olivetools": ("Véhicule", "Outil oléicole"),
+    "woodharvesting": ("Véhicule", "Matériel forestier"),
+    "woodtransport": ("Véhicule", "Transport de bois"),
+    "forestrytools": ("Véhicule", "Outil forestier"),
+    # --- Bâtiments / placeables ---
+    "sheds": ("Bâtiment", "Hangar"),
+    "farmhouses": ("Bâtiment", "Maison"),
+    "silos": ("Bâtiment", "Silo"),
+    "siloextensions": ("Bâtiment", "Extension de silo"),
+    "storages": ("Bâtiment", "Stockage"),
+    "productionpoints": ("Bâtiment", "Production"),
+    "placeablefactories": ("Bâtiment", "Production"),
+    "animalpens": ("Bâtiment", "Bâtiment d'élevage"),
+    "sellingpoints": ("Bâtiment", "Point de vente"),
+    "generators": ("Bâtiment", "Production d'énergie"),
+    "windturbines": ("Bâtiment", "Éolienne"),
+    "solarpanels": ("Bâtiment", "Panneau solaire"),
+    "beehives": ("Bâtiment", "Rucher"),
+    "fences": ("Bâtiment", "Clôture"),
+    "greenhouses": ("Bâtiment", "Serre"),
+    "gardening": ("Bâtiment", "Jardinage"),
+    "decoration": ("Bâtiment", "Décoration"),
+    "placeablemisc": ("Bâtiment", "Aménagement divers"),
+    # --- Objets / consommables ---
+    "pallets": ("Objet", "Palette"),
+    "bales": ("Objet", "Balle"),
+    "ibc": ("Objet", "Cuve IBC"),
+    "barrels": ("Objet", "Fût"),
+    "bigbags": ("Objet", "Big-bag"),
+    "trees": ("Objet", "Arbre"),
+    "misc": ("Objet", "Divers"),
+}
+
+# Pretty display names for the most common Giants brands (key = lowercased,
+# spaces removed). Unknown brands keep their original spelling; "none" → no brand.
+_BRAND_DISPLAY: dict[str, str] = {
+    "johndeere": "John Deere",
+    "caseih": "Case IH",
+    "newholland": "New Holland",
+    "masseyferguson": "Massey Ferguson",
+    "claas": "CLAAS",
+    "fendt": "Fendt",
+    "valtra": "Valtra",
+    "deutzfahr": "Deutz-Fahr",
+    "krone": "Krone",
+    "poettinger": "Pöttinger",
+    "kuhn": "Kuhn",
+    "kverneland": "Kverneland",
+    "horsch": "Horsch",
+    "lemken": "Lemken",
+    "amazone": "Amazone",
+    "vaederstad": "Väderstad",
+    "fliegl": "Fliegl",
+    "krampe": "Krampe",
+    "lizard": "Lizard",
+    "lizardlogistics": "Lizard Logistics",
+    "lizardmotors": "Lizard Motors",
+    "man": "MAN",
+    "volvo": "Volvo",
+    "mack": "Mack",
+    "scania": "Scania",
+    "iveco": "Iveco",
+    "rudolfhoermann": "Rudolf Hörmann",
+    "samsonagro": "Samson Agro",
+    "rinoagro": "Rino Agro",
+    "randon": "Randon",
+    "unia": "Unia",
+    "farmtech": "Farmtech",
+    "fortschritt": "Fortschritt",
+    "macdon": "MacDon",
+    "vicon": "Vicon",
+    "demco": "Demco",
+    "kaweco": "Kaweco",
+    "euromilk": "EuroMilk",
+    "andersongroup": "Anderson Group",
+    "corteva": "Corteva",
+    "helm": "Helm",
+}
+
+_VEHICLE_PATH_HINTS = (
+    "vehicle", "tractor", "truck", "car", "trailer", "harvest", "mower", "baler",
+    "loader", "plow", "cultivator", "seeder", "planter", "sprayer", "tank",
+    "header", "cutter", "weight", "tipper", "tool", "implement",
+)
+_PLACEABLE_PATH_HINTS = (
+    "placeable", "building", "shed", "house", "barn", "silo", "production",
+    "stable", "fence", "gate", "garage", "hall", "farm", "workshop", "station",
+    "storage", "greenhouse", "pen",
+)
+_VEHICLE_CAT_KW = (
+    "tractor", "truck", "car", "harvest", "mower", "trailer", "loader",
+    "telehandler", "skidsteer", "wagon", "baler", "cutter", "cultivator", "plow",
+    "seeder", "planter", "sprayer", "tank", "spreader", "weight", "forestry",
+    "header", "roller", "tedder", "windrower", "subsoiler", "tool", "grape",
+    "olive", "wood", "tipper", "transport", "pickup", "harrow",
+)
+_PLACEABLE_CAT_KW = (
+    "placeable", "shed", "silo", "production", "factory", "animal", "stable",
+    "fence", "gate", "garden", "generator", "hall", "farm", "house", "barn",
+    "bee", "selling", "pen", "storage", "greenhouse", "windturbine", "solar",
+    "decoration",
+)
+_OBJECT_CAT_KW = ("pallet", "bale", "ibc", "barrel", "bigbag", "misc", "object")
+
+
+def _norm_brand(brand: str | None) -> str | None:
+    """Normalize a raw brand to a display name; "none"/empty → ``None``."""
+    if not brand:
+        return None
+    cleaned = brand.strip()
+    if not cleaned or cleaned.lower() == "none":
+        return None
+    key = cleaned.lower().replace(" ", "")
+    return _BRAND_DISPLAY.get(key, cleaned)
+
+
+def _fallback_family(token: str, has_brand: bool) -> tuple[str, str | None]:
+    """Best-effort family for an FS category not in :data:`_FS_CATEGORY_FR`."""
+    if any(k in token for k in _PLACEABLE_CAT_KW):
+        return ("Bâtiment", None)
+    if any(k in token for k in _OBJECT_CAT_KW):
+        return ("Objet", None)
+    if has_brand or any(k in token for k in _VEHICLE_CAT_KW):
+        return ("Véhicule", None)
+    return ("Objet", None)
+
+
+def _classify(
+    fs_categories: list[str], root_node_types: set[str], has_brand: bool
+) -> tuple[str, str | None]:
+    """Map a mod's store categories to (French family, French precise type).
+
+    ``fs_categories`` are raw ``storeData/category`` strings (possibly several,
+    one per store item, and possibly space-separated lists). The dominant
+    first-token wins; unknown tokens fall back to a keyword heuristic, and a mod
+    with no parsable category leans on its ``rootNode`` / brand.
+    """
+    tally: Counter[str] = Counter()
+    for raw in fs_categories:
+        parts = raw.split()
+        if parts:
+            tally[parts[0]] += 1
+    if tally:
+        dominant = tally.most_common(1)[0][0]
+        return _FS_CATEGORY_FR.get(dominant) or _fallback_family(dominant, has_brand)
+    if "Véhicule" in root_node_types:
+        return ("Véhicule", None)
+    if "Bâtiment" in root_node_types:
+        return ("Bâtiment", None)
+    if has_brand:
+        return ("Véhicule", None)
+    return ("Objet", None)
 
 
 @dataclass
@@ -220,90 +448,49 @@ def _read_moddesc_from_zip(zip_path: Path, icon_cache_dir: Path | None = None) -
                     dep_name = (dep.text or "").strip()
                     if dep_name and dep_name not in requires:
                         requires.append(dep_name)
-            brand = (root.findtext("brand") or root.findtext("brands/brand") or "").strip() or None
-            has_brands = brand is not None
+            brand = _norm_brand(
+                root.findtext("brand") or root.findtext("brands/brand")
+            )
             type_tag = None
 
             if is_map:
                 category = "Carte"
             elif (store_items := root.find("storeItems")) is not None:
-                # Deep scan: follow storeItems to find real category tags
-                found_fs_categories = set()
-                found_types = set()
+                # Follow each storeItem to its XML to read the real Giants store
+                # category + brand, then map to a French family/type.
+                fs_categories: list[str] = []
+                root_node_types: set[str] = set()
                 for item in store_items.findall("storeItem"):
+                    rn = (item.get("rootNode") or "").lower()
+                    if rn == "vehicle":
+                        root_node_types.add("Véhicule")
+                    elif rn == "placeable":
+                        root_node_types.add("Bâtiment")
                     xml_path = item.get("xmlFilename") or item.get("filename")
-                    root_node = (item.get("rootNode") or "").lower()
-                    
-                    if root_node == "vehicle":
-                        found_types.add("Véhicule")
-                    elif root_node == "placeable":
-                        found_types.add("Bâtiment")
+                    if not xml_path:
+                        continue
+                    rel_path = xml_path.replace("\\", "/").strip()
+                    try:
+                        with zf.open(rel_path) as item_fh:
+                            item_root = ET.fromstring(item_fh.read())
+                    except Exception:
+                        # XML unreadable → fall back to a path keyword hint.
+                        xp = rel_path.lower()
+                        if any(k in xp for k in _PLACEABLE_PATH_HINTS):
+                            root_node_types.add("Bâtiment")
+                        elif any(k in xp for k in _VEHICLE_PATH_HINTS):
+                            root_node_types.add("Véhicule")
+                        continue
+                    cat = (item_root.findtext("storeData/category") or "").strip().lower()
+                    if cat:
+                        fs_categories.append(cat)
+                    if not brand:
+                        brand = _norm_brand(item_root.findtext("storeData/brand"))
 
-                    if xml_path:
-                        # Canonicalize path in zip
-                        rel_path = xml_path.replace("\\", "/").strip()
-                        try:
-                            with zf.open(rel_path) as item_fh:
-                                item_root = ET.fromstring(item_fh.read())
-                                cat = item_root.findtext("storeData/category")
-                                if cat:
-                                    found_fs_categories.add(cat.lower())
-                                    if not type_tag:
-                                        type_tag = cat.lower()
-                                
-                                # Try to get brand from item XML if modDesc didn't have it
-                                if not brand:
-                                    brand = (item_root.findtext("storeData/brand") or "").strip() or None
-                        except Exception:
-                            # Fallback to path-based hints if XML reading fails
-                            xp = xml_path.lower()
-                            if any(k in xp for k in ("vehicle", "tool", "implement", "car", "tractor", "truck", "trailer", "harvester", "mower", "baler", "loader", "plow", "cultivator", "seeder", "planter", "sprayer", "tanker", "header", "cutter", "weight", "fork", "tipper", "defender", "jeep", "pickup", "magnum", "fendt", "deere", "claas", "massey", "valtra", "holland", "jcb", "kubota", "man", "scania", "iveco", "volvo")):
-                                found_types.add("Véhicule")
-                            elif any(k in xp for k in ("placeable", "building", "shed", "house", "barn", "silo", "production", "stable", "cow", "pig", "sheep", "chicken", "greenhouse", "fence", "gate", "garage", "hall", "farm", "workshop", "station", "storage", "tank")):
-                                found_types.add("Bâtiment")
-
-                # Decision making
-                if found_fs_categories:
-                    category = "Objet"  # default
-                    for fs_cat in found_fs_categories:
-                        fsc = fs_cat.lower()
-                        # 1. Véhicules & Outils (très large pour couvrir les catégories combinées)
-                        if any(k in fsc for k in (
-                            "tractor", "truck", "car", "harvester", "mower", "trailer", "loader", 
-                            "telehandler", "skidsteer", "animaltransport", "wagon", "baler", "cutter",
-                            "cultivator", "plow", "seeder", "planter", "sprayer", "tanker", "spreader", 
-                            "weight", "forestry", "winter", "leveler", "tool", "implement", "harrow",
-                            "subsoiler", "roller", "grape", "olive", "pick", "wood", "header", 
-                            "potato", "slurry", "tank", "barrel", "transport"
-                        )):
-                            category = "Véhicule"
-                            break
-                        # 2. Bâtiments & Ferme
-                        if any(k in fsc for k in (
-                            "placeable", "shed", "silo", "production", "factory", "animalhouse", 
-                            "stable", "fence", "gate", "garden", "generator", "hall", "farm", 
-                            "workshop", "storage", "house", "barn", "bee", "selling", "pen"
-                        )):
-                            category = "Bâtiment"
-                    
-                    # Special case for misc/objects which should stay in "Objet" 
-                    # unless a vehicle keyword was already found above
-                    if category == "Objet" and any(k in fsc for k in ("misc", "object", "pallet", "decoration")):
-                        category = "Objet"
-                    
-                    # If still "Objet" but we have a brand or a fallback type said it's a vehicle
-                    if category == "Objet" and (has_brands or "Véhicule" in found_types):
-                        category = "Véhicule"
-
-                elif "Véhicule" in found_types:
-                    category = "Véhicule"
-                elif "Bâtiment" in found_types:
-                    category = "Bâtiment"
-                elif has_brands:
-                    category = "Véhicule"
-                else:
-                    category = "Objet"
-            elif has_brands:
+                category, type_tag = _classify(
+                    fs_categories, root_node_types, brand is not None
+                )
+            elif brand is not None:
                 category = "Véhicule"
             elif root.find("extraSourceFiles") is not None:
                 category = "Script"

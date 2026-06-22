@@ -58,6 +58,8 @@ class EditorPanel(QWidget):
 
     changed = Signal()  # target mutated → owner should save
     mod_delete_requested = Signal(list)  # list[CatalogEntry] — delete from library
+    add_to_profile_requested = Signal(list)  # list[str] filenames — add to a chosen profile
+    add_to_collection_requested = Signal(list)  # list[str] filenames — add to a chosen collection
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -133,11 +135,19 @@ class EditorPanel(QWidget):
         self.content.remove_requested.connect(self._remove_filenames)
         self.content.exclude_requested.connect(self._set_excluded)
         self.content.entry_double_clicked.connect(self._show_details)
+        self.content.add_to_profile_requested.connect(self.add_to_profile_requested)
+        self.content.add_to_collection_requested.connect(self.add_to_collection_requested)
 
         # ---- page 1: library picker + add button
         self.library = LibraryTable(self)
         self.library.entry_double_clicked.connect(self._add_entry)
-        self.library.add_to_collection.connect(self._add_entries)
+        # Library context-menu "Ajouter à une collection…" → pick a collection
+        # (distinct from the "Ajouter →" button, which targets the current item).
+        self.library.add_to_collection.connect(
+            lambda entries: self.add_to_collection_requested.emit(
+                [e.filename for e in entries]
+            )
+        )
         self.library.delete_requested.connect(self.mod_delete_requested)
         self.add_btn = QPushButton("Ajouter →", self)
         self.add_btn.clicked.connect(self._add_selected)

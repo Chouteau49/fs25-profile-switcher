@@ -28,6 +28,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QCompleter,
     QFileIconProvider,
     QHBoxLayout,
     QLabel,
@@ -53,6 +54,36 @@ COL_VERSION = 3
 COL_BRAND = 4
 COL_TYPE = 5
 COL_AUTHOR = 6
+
+
+def _make_searchable_combo(combo: QComboBox, placeholder: str = "Filtrer…") -> None:
+    """Turn a combo into a type-to-filter combo (case-insensitive 'contains').
+
+    The combo stays a real combo (its ``currentData`` drives the filters) but the
+    user can type to narrow a long list; picking a completion selects the item.
+    """
+    combo.setEditable(True)
+    combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+    combo.lineEdit().setPlaceholderText(placeholder)
+    completer = combo.completer()
+    completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+    completer.setFilterMode(Qt.MatchFlag.MatchContains)
+    completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+
+    def _snap() -> None:
+        # Empty field → back to the "all" item; unknown text → revert to the
+        # current valid selection so the box never shows a stale free-text value.
+        text = combo.lineEdit().text().strip()
+        if not text:
+            combo.setCurrentIndex(0)
+            return
+        i = combo.findText(text, Qt.MatchFlag.MatchFixedString)
+        if i >= 0:
+            combo.setCurrentIndex(i)
+        else:
+            combo.setEditText(combo.itemText(combo.currentIndex()))
+
+    combo.lineEdit().editingFinished.connect(_snap)
 
 class CatalogTableModel(QAbstractTableModel):
     HEADERS = ("", "Fichier", "Titre", "Version", "Marque", "Catégorie", "Auteur")
@@ -243,6 +274,8 @@ class ModCardDelegate(QStyledItemDelegate):
         painter.setFont(sub_font)
         painter.setPen(QPen(QColor("#9aa0a6") if not selected else text_color))
         sub = entry.category
+        if entry.type:
+            sub = f"{sub} · {entry.type}"
         if entry.version and entry.version != "0.0.0.0":
             sub = f"{sub} · v{entry.version}"
         sub = painter.fontMetrics().elidedText(sub, Qt.TextElideMode.ElideRight, sub_rect.width())
@@ -366,10 +399,12 @@ class LibraryTable(QWidget):
         self.brand_filter = QComboBox(self)
         self.brand_filter.addItem("Toutes les marques", userData="Toutes")
         self.brand_filter.currentIndexChanged.connect(self._on_brand_filter_changed)
+        _make_searchable_combo(self.brand_filter, "Filtrer les marques…")
 
         self.type_filter = QComboBox(self)
         self.type_filter.addItem("Tous les types", userData="Tous")
         self.type_filter.currentIndexChanged.connect(self._on_type_filter_changed)
+        _make_searchable_combo(self.type_filter, "Filtrer les types…")
 
         self.profile_filter = QComboBox(self)
         self.profile_filter.addItem("Tous les mods", userData="all")

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0] - 2026-06-22
+
+### Added
+
+- **Classification des mods en types français + marques normalisées** : le scan ne se contente plus de grandes familles (Véhicule/Bâtiment/Objet). Une table de correspondance `storeData/category` (Giants) → **type FR** déduit le type précis affiché sous chaque vignette et dans le détail : *Tracteur, Remorque, Camion, Moissonneuse, Coupe, Déchaumeur, Charrue, Semoir, Pulvérisateur, Tonne à lisier, Presse, Hangar, Silo, Production…*. La lecture parcourt désormais **tous** les `storeItems` (catégorie dominante, 1er token des catégories composées) au lieu du premier seul, et les **marques** sont normalisées pour l'affichage (`johndeere` → *John Deere*, `caseih` → *Case IH*… ; `none` → aucune). Sur une bibliothèque réelle de 1044 mods : 805 véhicules, 141 bâtiments, 36 objets, 12 cartes, **2 « Divers » seulement**. Schéma de cache 20 → 21 (rescan automatique). Type affiché dans la galerie, la table et le détail (« Véhicule · Tracteur »).
+- **Ajouter des mods d'une collection à un profil** : depuis le contenu d'une collection (ou d'un profil), **clic droit → « ➕ Ajouter à un profil… »** sur un ou plusieurs mods sélectionnés ; un sélecteur choisit le profil cible. Un mod de carte devient la carte du profil s'il n'en a pas.
+- **Ajouter des mods à une collection depuis la bibliothèque ou un profil** : **clic droit → « 🗂️ Ajouter à une collection… »** dans la bibliothèque ou le contenu d'un profil ; un sélecteur choisit la collection. Les cartes sont ignorées (choix propre à chaque profil). **Anti-doublon systématique** : un mod déjà présent n'est jamais ajouté deux fois, ni dans un profil ni dans une collection.
+- **Filtres marque / type recherchables** : les listes déroulantes *Marque* et *Type* de la bibliothèque (parfois très longues — 249 marques) deviennent **éditables** : on tape pour filtrer (insensible à la casse, « contient »). Champ vidé → revient à « Toutes/Tous » ; texte sans correspondance → revient à la sélection valide.
+
+### Changed
+
+- **Détail d'un mod : texte sélectionnable / copiable** : dans la fenêtre de détail (ouverte via « Voir détail » ou double-clic), la **description** et les infos (catégorie, type, version, auteur, marque, fichier, dépendances) sont désormais sélectionnables à la souris/clavier pour un copier-coller.
+
+### Build / Release
+
+- Version passée de `0.3.0` à `0.4.0`.
+
 ## [0.3.0] - 2026-06-22
 
 ### Added

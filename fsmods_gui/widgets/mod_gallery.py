@@ -305,6 +305,8 @@ class ContentCardDelegate(QStyledItemDelegate):
         else:
             painter.setPen(QPen(QColor("#9aa0a6") if not selected else text_color))
             sub = entry.category
+            if entry.type:
+                sub = f"{sub} · {entry.type}"
             if entry.version and entry.version != "0.0.0.0":
                 sub = f"{sub} · v{entry.version}"
         sub = painter.fontMetrics().elidedText(
@@ -331,6 +333,8 @@ class ModContentPanel(QWidget):
     exclude_requested = Signal(str, bool)  # filename, excluded
     selection_changed = Signal(list)  # list[str] filenames
     entry_double_clicked = Signal(str)  # filename
+    add_to_profile_requested = Signal(list)  # list[str] filenames → add to a profile
+    add_to_collection_requested = Signal(list)  # list[str] filenames → add to a collection
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -434,6 +438,11 @@ class ModContentPanel(QWidget):
         idx = self.view.indexAt(pos)
         menu = QMenu(self)
         if idx.isValid():
+            # Right-clicking an unselected item acts on it alone.
+            sel = self.view.selectionModel()
+            if sel is not None and not sel.isSelected(idx):
+                self.view.clearSelection()
+                self.view.setCurrentIndex(idx)
             item = self.model.item_at(idx.row())
             if item is not None:
                 if item.kind == KIND_INHERITED:
@@ -455,6 +464,12 @@ class ModContentPanel(QWidget):
                     )
                     act = menu.addAction(label)
                     act.triggered.connect(self._emit_remove)
+                # Push the selected mod(s) into another profile / a collection.
+                menu.addSeparator()
+                add_prof_act = menu.addAction("➕ Ajouter à un profil…")
+                add_prof_act.triggered.connect(self._emit_add_to_profile)
+                add_coll_act = menu.addAction("🗂️ Ajouter à une collection…")
+                add_coll_act.triggered.connect(self._emit_add_to_collection)
         if not menu.isEmpty():
             menu.exec_(self.view.viewport().mapToGlobal(pos))
 
@@ -462,3 +477,13 @@ class ModContentPanel(QWidget):
         names = self.selected_filenames()
         if names:
             self.remove_requested.emit(names)
+
+    def _emit_add_to_profile(self) -> None:
+        names = self.selected_filenames()
+        if names:
+            self.add_to_profile_requested.emit(names)
+
+    def _emit_add_to_collection(self) -> None:
+        names = self.selected_filenames()
+        if names:
+            self.add_to_collection_requested.emit(names)
