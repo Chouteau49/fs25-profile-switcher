@@ -97,6 +97,16 @@ class ModDetailDialog(QDialog):
             note.setStyleSheet("color: #888; font-size: 11px;")
             note_layout.addWidget(note)
             
+            self.gtranslate_btn = QPushButton("🌐 Google Traduction", self)
+            self.gtranslate_btn.setStyleSheet("font-size: 11px; padding: 2px 10px;")
+            self.gtranslate_btn.setToolTip(
+                "Ouvre Google Traduction (EN → FR) dans le navigateur avec le texte "
+                "pré-rempli. Le texte complet est aussi copié dans le presse-papier "
+                "(à coller si la description est très longue)."
+            )
+            self.gtranslate_btn.clicked.connect(self._open_google_translate)
+            note_layout.addWidget(self.gtranslate_btn)
+
             self.translate_btn = QPushButton("Traduire (FR)", self)
             self.translate_btn.setStyleSheet("font-size: 11px; padding: 2px 10px;")
             self.translate_btn.clicked.connect(self._on_translate)
@@ -111,6 +121,27 @@ class ModDetailDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         btns.addWidget(close_btn)
         layout.addLayout(btns)
+
+    def _open_google_translate(self) -> None:
+        """Open Google Translate (EN→FR) in the browser, text pre-filled + copied."""
+        from urllib.parse import quote
+
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices, QGuiApplication
+
+        text = (self.entry.description_en or self.desc_label.text() or "").strip()
+        if not text:
+            return
+        # Full text to the clipboard as a fallback for very long descriptions.
+        QGuiApplication.clipboard().setText(text)
+        # Google Translate accepts the text in the URL; cap it so the URL stays
+        # within browser limits (the clipboard still holds the complete text).
+        snippet = text[:1800]
+        url = (
+            "https://translate.google.com/?sl=auto&tl=fr&op=translate&text="
+            + quote(snippet)
+        )
+        QDesktopServices.openUrl(QUrl(url))
 
     def _on_translate(self) -> None:
         """Translate and inject the result into the ZIP file."""

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1] - 2026-06-23
+
+### Added
+
+- **Détail d'un mod : « 🌐 Google Traduction » pour les descriptions en anglais** : quand un mod n'a qu'une description anglaise, un bouton ouvre **Google Traduction** (détection auto → français) dans le navigateur par défaut avec le **texte pré-rempli** dans l'URL, et **copie le texte complet dans le presse-papier** en secours (à coller si la description est trop longue pour l'URL). Méthode `_open_google_translate` (ouverture via `QDesktopServices`).
+
+### Build / Release
+
+- Version passée de `0.4.0` à `0.4.1`.
+
 ## [0.4.0] - 2026-06-22
 
 ### Added
