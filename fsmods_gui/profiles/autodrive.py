@@ -39,11 +39,16 @@ AUTODRIVE_FILES: tuple[str, ...] = (
 
 @dataclass
 class AutoDrivePack:
-    """A downloaded ``.zip`` holding AutoDrive savegame XML, awaiting install."""
+    """A ``.zip`` holding AutoDrive savegame XML, awaiting install.
+
+    ``in_library`` is True when the pack lives in the dedicated AutoDrive library
+    folder (already imported), False when it is still in a download/inbox folder.
+    """
 
     source_path: Path
     # canonical filename -> entry name inside the zip (preserves zip casing/path)
     members: dict[str, str] = field(default_factory=dict)
+    in_library: bool = False
 
     @property
     def filename(self) -> str:
@@ -104,23 +109,55 @@ def _list_zip_files(folder: Path) -> list[Path]:
         return []
 
 
-def scan_packs(source_dirs: list[Path]) -> list[AutoDrivePack]:
-    """Find AutoDrive route packs across ``source_dirs`` (Downloads + inbox).
+def scan_packs(
+    source_dirs: list[Path], library_dir: Path | None = None
+) -> list[AutoDrivePack]:
+    """Find AutoDrive route packs in ``source_dirs`` (Downloads + inbox) and in
+    the dedicated ``library_dir`` (already imported).
 
-    De-duplicated by filename in ``source_dirs`` order, sorted by name.
+    De-duplicated by filename. The library is scanned first so an imported pack
+    is reported as ``in_library`` even if a same-named copy lingers elsewhere.
+    Sorted: library packs first, then by name.
     """
     packs: list[AutoDrivePack] = []
     seen: set[str] = set()
-    for folder in source_dirs:
+    folders: list[tuple[Path, bool]] = []
+    if library_dir is not None:
+        folders.append((library_dir, True))
+    folders.extend((d, False) for d in source_dirs)
+    for folder, in_library in folders:
         for zip_path in sorted(_list_zip_files(folder), key=lambda p: p.name.lower()):
             if zip_path.name in seen:
                 continue
             pack = detect_pack(zip_path)
             if pack is None:
                 continue
+            pack.in_library = in_library
             seen.add(zip_path.name)
             packs.append(pack)
+    packs.sort(key=lambda p: (not p.in_library, p.filename.lower()))
     return packs
+
+
+def import_pack(pack: AutoDrivePack, library_dir: Path) -> Path:
+    """Move ``pack``'s zip into the AutoDrive library folder (cut). Returns the dest.
+
+    Overwrites a same-named pack already in the library (the freshly downloaded
+    one wins). Raises ``FileNotFoundError`` if the source is gone.
+    """
+    import shutil
+
+    library_dir.mkdir(parents=True, exist_ok=True)
+    src = pack.source_path
+    if not src.is_file():
+        raise FileNotFoundError(f"{src.name} introuvable dans le dossier source.")
+    dst = library_dir / src.name
+    if dst.resolve() == src.resolve():
+        return dst  # already in the library
+    if dst.exists():
+        dst.unlink()
+    shutil.move(str(src), str(dst))
+    return dst
 
 
 def _backup_path(target: Path) -> Path:

@@ -39,15 +39,18 @@ class AutoDrivePanel(QWidget):
 
     rescan_requested = Signal()
     install_requested = Signal()
+    import_requested = Signal()  # move the selected download into the AutoDrive library
 
     def __init__(
         self,
         source_dirs: list[Path],
         user_dir: Path,
+        library_dir: Path | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._user_dir = user_dir
+        self._library_dir = library_dir
 
         intro = QLabel(
             "Installe un <b>pack de routes AutoDrive</b> téléchargé (un zip "
@@ -102,11 +105,18 @@ class AutoDrivePanel(QWidget):
         # ---- buttons
         rescan_btn = QPushButton("🔄 Rescanner", self)
         rescan_btn.clicked.connect(self.rescan_requested.emit)
+        self.import_btn = QPushButton("📥 Importer dans la bibliothèque", self)
+        self.import_btn.setToolTip(
+            "Déplacer le pack sélectionné depuis le dossier de téléchargement vers "
+            "la bibliothèque AutoDrive (séparée des mods)."
+        )
+        self.import_btn.clicked.connect(self.import_requested.emit)
         self.install_btn = QPushButton("🛣 Installer dans la sauvegarde", self)
         self.install_btn.clicked.connect(self.install_requested.emit)
         btn_row = QHBoxLayout()
         btn_row.addWidget(rescan_btn)
         btn_row.addStretch(1)
+        btn_row.addWidget(self.import_btn)
         btn_row.addWidget(self.install_btn)
 
         layout = QVBoxLayout(self)
@@ -115,7 +125,7 @@ class AutoDrivePanel(QWidget):
         layout.addLayout(cols, 1)
         layout.addLayout(btn_row)
 
-        self.set_packs(scan_packs(source_dirs))
+        self.set_packs(scan_packs(source_dirs, library_dir))
 
     # ----------------------------------------------------------------- populate
 
@@ -123,17 +133,24 @@ class AutoDrivePanel(QWidget):
         self.packs_list.clear()
         for pack in packs:
             files = " + ".join(pack.provided)
-            item = QListWidgetItem(f"{pack.filename}\n   {files}")
+            badge = "🗂️ Bibliothèque" if pack.in_library else "📥 Téléchargements"
+            item = QListWidgetItem(f"{badge}  ·  {pack.filename}\n   {files}")
             item.setData(_ROLE_PACK, pack)
-            item.setToolTip(f"Source : {pack.source_label}\nContient : {files}")
+            item.setToolTip(
+                f"Emplacement : {'Bibliothèque AutoDrive' if pack.in_library else pack.source_label}"
+                f"\nContient : {files}"
+            )
             self.packs_list.addItem(item)
         if packs:
-            self.packs_count.setText(f"{len(packs)} pack(s) trouvé(s).")
+            n_lib = sum(1 for p in packs if p.in_library)
+            self.packs_count.setText(
+                f"{len(packs)} pack(s) — {n_lib} en bibliothèque, "
+                f"{len(packs) - n_lib} à importer."
+            )
             self.packs_list.setCurrentRow(0)
         else:
             self.packs_count.setText(
-                "Aucun pack AutoDrive trouvé dans les dossiers source "
-                "(Téléchargements + new_mods)."
+                "Aucun pack AutoDrive trouvé (Téléchargements + new_mods + bibliothèque)."
             )
         self._refresh_detail()
 
@@ -155,6 +172,11 @@ class AutoDrivePanel(QWidget):
         sg = self.selected_savegame()
         ready = pack is not None and sg is not None
         self.install_btn.setEnabled(ready)
+        # Import = move a *download* into the library; useless if already there
+        # or if no library is configured.
+        self.import_btn.setEnabled(
+            pack is not None and not pack.in_library and self._library_dir is not None
+        )
         if pack is None:
             self.detail.setText("Sélectionne un pack de routes à gauche.")
             return

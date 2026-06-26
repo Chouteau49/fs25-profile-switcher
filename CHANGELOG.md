@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0] - 2026-06-23
+
+### Added
+
+- **Bibliothèque AutoDrive dédiée (séparée des mods)** : les packs de routes AutoDrive ont désormais leur propre dossier `<library_dir>/autodrive`, distinct de `mods/` — plus de confusion entre un mod et un pack de routes. Dans l'onglet « 🛣 Routes AutoDrive » :
+  - chaque pack affiche sa **source** (📥 Téléchargements ou 🗂️ Bibliothèque) avec un décompte « X en bibliothèque, Y à importer » ;
+  - nouveau bouton **« 📥 Importer dans la bibliothèque »** qui **déplace (coupe)** le pack sélectionné des Téléchargements vers la bibliothèque AutoDrive, comme l'import d'un mod (désactivé si le pack y est déjà) ;
+  - le scan couvre **Téléchargements + new_mods + bibliothèque AutoDrive**, et l'installation dans une sauvegarde fonctionne aussi bien depuis un téléchargement que depuis la bibliothèque.
+  - Nouveaux : `GameProfile.library_autodrive_dir` (config), `import_pack()` + `scan_packs(…, library_dir)` + champ `AutoDrivePack.in_library` (profiles/autodrive.py), handler `_import_autodrive` (fenêtre principale).
+
+### Build / Release
+
+- Version passée de `0.4.1` à `0.5.0`.
+
 ## [0.4.1] - 2026-06-23
 
 ### Added

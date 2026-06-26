@@ -364,12 +364,32 @@ class MainWindow(QMainWindow):
         from .profiles.autodrive import scan_packs
         from .widgets.autodrive_dialog import AutoDrivePanel
 
-        panel = AutoDrivePanel(game.new_mod_source_dirs(), game.mods_dir.parent)
+        lib = game.library_autodrive_dir
+        panel = AutoDrivePanel(
+            game.new_mod_source_dirs(), game.mods_dir.parent, library_dir=lib
+        )
         panel.rescan_requested.connect(
-            lambda: panel.set_packs(scan_packs(game.new_mod_source_dirs()))
+            lambda: panel.set_packs(scan_packs(game.new_mod_source_dirs(), lib))
         )
         panel.install_requested.connect(lambda: self._install_autodrive(panel))
+        panel.import_requested.connect(lambda: self._import_autodrive(panel))
         return panel
+
+    def _import_autodrive(self, panel) -> None:
+        """Move the selected route pack from downloads into the AutoDrive library."""
+        from .profiles.autodrive import import_pack, scan_packs
+
+        pack = panel.selected_pack()
+        lib = self.state.game.library_autodrive_dir
+        if pack is None or lib is None or pack.in_library:
+            return
+        try:
+            dest = import_pack(pack, lib)
+        except (OSError, FileNotFoundError) as exc:
+            QMessageBox.warning(self, "Import AutoDrive", f"Échec de l'import : {exc}")
+            return
+        panel.set_packs(scan_packs(self.state.game.new_mod_source_dirs(), lib))
+        self._status(f"Pack AutoDrive importé dans la bibliothèque : {dest.name}")
 
     def _build_new_mods_panel(self) -> QWidget:
         try:

@@ -117,6 +117,11 @@ class GameProfile:
     def library_collections_dir(self) -> Path | None:
         return self.library_dir / "collections" if self.library_dir else None
 
+    @property
+    def library_autodrive_dir(self) -> Path | None:
+        """Dedicated library folder for AutoDrive route packs (not mods)."""
+        return self.library_dir / "autodrive" if self.library_dir else None
+
     def steam_launch_url(self) -> str | None:
         return f"steam://rungameid/{self.steam_app_id}" if self.steam_app_id else None
 
