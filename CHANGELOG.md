@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0] - 2026-06-26
+
+### Added
+
+- **Vue « 📦 Contenu » : retrait en masse des mods** : barre d'actions en haut de la vue contenu (profil ou collection) avec **« Tout sélectionner »** et **« 🗑 Retirer la sélection (N) »** (le compteur se met à jour selon la sélection). Confirmation au-delà de 2 mods. Aucun fichier n'est effacé de la bibliothèque : les mods sont seulement retirés du profil/de la collection (les mods hérités d'une collection sont exclus, comme avant). La sélection multiple souris (Ctrl/Maj+clic) et le menu contextuel « Retirer » restent disponibles.
+- **Vue « 📦 Contenu » : recherche + filtres (comme la bibliothèque)** : barre **Recherche** (nom, titre, auteur) + filtres **catégorie**, **marque** et **type**, ces deux derniers **recherchables** (taper pour filtrer) et masqués quand il n'y a rien à filtrer. Les filtres sont peuplés à partir des mods réellement présents dans le profil/la collection, et se combinent avec le retrait en masse (ex. filtrer une marque → tout sélectionner → retirer). Compteur « N / total » quand un filtre est actif.
+
+### Build / Release
+
+- Version passée de `0.5.0` à `0.6.0`.
+
 ## [0.5.0] - 2026-06-23
 
 ### Added

@@ -31,10 +31,14 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListView,
     QMenu,
+    QMessageBox,
+    QPushButton,
     QStyle,
     QStyledItemDelegate,
     QToolButton,
@@ -43,7 +47,15 @@ from PySide6.QtWidgets import (
 )
 
 from ..profiles.catalog import Catalog, CatalogEntry
-from .library_table import CARD_H, CARD_PAD, CARD_THUMB, CARD_W
+from .library_table import (
+    CARD_H,
+    CARD_PAD,
+    CARD_THUMB,
+    CARD_W,
+    _make_searchable_combo,
+)
+
+_FILTER_ALL = "__all__"
 
 # Item kinds (mirrors the markers the profile editor used on its list rows).
 KIND_MAP = "map"
@@ -339,12 +351,38 @@ class ModContentPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._catalog: Catalog | None = None
+        self._all_items: list[GalleryItem] = []
         self.model = ModListModel(self)
         self._card_delegate = ContentCardDelegate(self)
         self._list_delegate = QStyledItemDelegate(self)
         self._view_mode = "grid"
 
+        # ---- search + filters (mirror the library, scoped to this content)
+        self.search = QLineEdit(self)
+        self.search.setPlaceholderText("Rechercher (nom, titre, auteur)…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._apply_filters)
+        self.cat_filter = QComboBox(self)
+        self.cat_filter.currentIndexChanged.connect(self._apply_filters)
+        self.brand_filter = QComboBox(self)
+        self.brand_filter.currentIndexChanged.connect(self._apply_filters)
+        _make_searchable_combo(self.brand_filter, "Filtrer les marques…")
+        self.type_filter = QComboBox(self)
+        self.type_filter.currentIndexChanged.connect(self._apply_filters)
+        _make_searchable_combo(self.type_filter, "Filtrer les types…")
+
         self.count_label = QLabel("0 mod", self)
+        self.select_all_btn = QToolButton(self)
+        self.select_all_btn.setText("Tout sélectionner")
+        self.select_all_btn.setToolTip("Sélectionner tous les mods affichés")
+        self.select_all_btn.clicked.connect(self.view_select_all)
+        self.remove_btn = QPushButton("🗑 Retirer la sélection", self)
+        self.remove_btn.setToolTip(
+            "Retirer du profil / de la collection les mods sélectionnés "
+            "(n'efface aucun fichier de la bibliothèque)."
+        )
+        self.remove_btn.setEnabled(False)
+        self.remove_btn.clicked.connect(self._confirm_remove)
         self.list_btn = QToolButton(self)
         self.list_btn.setText("☰")
         self.list_btn.setToolTip("Vue liste")
@@ -369,8 +407,17 @@ class ModContentPanel(QWidget):
         self.view.customContextMenuRequested.connect(self._on_context_menu)
 
         layout = QVBoxLayout(self)
+        filters = QHBoxLayout()
+        filters.addWidget(self.search, 2)
+        filters.addWidget(self.cat_filter, 1)
+        filters.addWidget(self.brand_filter, 1)
+        filters.addWidget(self.type_filter, 1)
+        layout.addLayout(filters)
         top = QHBoxLayout()
         top.addWidget(self.count_label)
+        top.addSpacing(8)
+        top.addWidget(self.select_all_btn)
+        top.addWidget(self.remove_btn)
         top.addStretch(1)
         top.addWidget(self.list_btn)
         top.addWidget(self.grid_btn)
@@ -409,9 +456,71 @@ class ModContentPanel(QWidget):
         self._catalog = catalog
 
     def set_items(self, items: list[GalleryItem]) -> None:
-        self.model.set_items(items)
-        n = sum(1 for it in items if not it.excluded)
-        self.count_label.setText(f"{n} mod{'s' if n > 1 else ''}")
+        self._all_items = list(items)
+        self._rebuild_filter_combos()
+        self._apply_filters()
+
+    def _rebuild_filter_combos(self) -> None:
+        cats, brands, types = set(), set(), set()
+        for it in self._all_items:
+            e = it.entry
+            if e is None:
+                continue
+            if e.category:
+                cats.add(e.category)
+            if e.brand:
+                brands.add(e.brand)
+            if e.type:
+                types.add(e.type)
+
+        def repopulate(combo: QComboBox, values: set[str], all_label: str) -> None:
+            current = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(all_label, userData=_FILTER_ALL)
+            for v in sorted(values, key=str.lower):
+                combo.addItem(v, userData=v)
+            idx = combo.findData(current)
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.blockSignals(True)  # keep silent; caller triggers _apply_filters
+            combo.blockSignals(False)
+
+        repopulate(self.cat_filter, cats, "Toutes les catégories")
+        repopulate(self.brand_filter, brands, "Toutes les marques")
+        repopulate(self.type_filter, types, "Tous les types")
+        # Hide filters that have nothing to offer (e.g. a collection of objects).
+        self.brand_filter.setVisible(bool(brands))
+        self.type_filter.setVisible(bool(types))
+
+    def _apply_filters(self) -> None:
+        text = self.search.text().strip().lower()
+        cat = self.cat_filter.currentData()
+        brand = self.brand_filter.currentData()
+        typ = self.type_filter.currentData()
+
+        def keep(it: GalleryItem) -> bool:
+            e = it.entry
+            if cat not in (None, _FILTER_ALL) and (e is None or e.category != cat):
+                return False
+            if brand not in (None, _FILTER_ALL) and (e is None or e.brand != brand):
+                return False
+            if typ not in (None, _FILTER_ALL) and (e is None or e.type != typ):
+                return False
+            if text:
+                author = (e.author or "") if e else ""
+                hay = f"{it.filename} {it.title} {author}".lower()
+                if text not in hay:
+                    return False
+            return True
+
+        shown = [it for it in self._all_items if keep(it)]
+        self.model.set_items(shown)
+        total = sum(1 for it in self._all_items if not it.excluded)
+        n = sum(1 for it in shown if not it.excluded)
+        if n == total:
+            self.count_label.setText(f"{total} mod{'s' if total > 1 else ''}")
+        else:
+            self.count_label.setText(f"{n} / {total} mods")
 
     def selected_filenames(self) -> list[str]:
         sel = self.view.selectionModel()
@@ -426,8 +535,32 @@ class ModContentPanel(QWidget):
 
     # --------------------------------------------------------------- events
 
+    def view_select_all(self) -> None:
+        self.view.selectAll()
+
+    def _confirm_remove(self) -> None:
+        names = self.selected_filenames()
+        if not names:
+            return
+        if len(names) >= 2:
+            ans = QMessageBox.question(
+                self,
+                "Retirer la sélection",
+                f"Retirer {len(names)} mod(s) du profil / de la collection ?\n\n"
+                "Les fichiers restent dans la bibliothèque.",
+            )
+            if ans != QMessageBox.StandardButton.Yes:
+                return
+        self.remove_requested.emit(names)
+
     def _on_selection(self) -> None:
-        self.selection_changed.emit(self.selected_filenames())
+        names = self.selected_filenames()
+        n = len(names)
+        self.remove_btn.setEnabled(n > 0)
+        self.remove_btn.setText(
+            f"🗑 Retirer la sélection ({n})" if n else "🗑 Retirer la sélection"
+        )
+        self.selection_changed.emit(names)
 
     def _on_double_click(self, index: QModelIndex) -> None:
         item = self.model.item_at(index.row())
