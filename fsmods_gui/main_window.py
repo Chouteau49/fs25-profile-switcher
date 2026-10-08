@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QSettings, QSize, Qt, QThread
+from PySide6.QtCore import QByteArray, QSettings, QSize, Qt, QThread, QTimer
 from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -51,6 +51,7 @@ from .widgets.sync_dialog import (
 )
 from .workers import (
     ActivateWorker,
+    ConfigBackupWorker,
     GameWatcher,
     ScanWorker,
     TestRunnerWorker,
@@ -145,6 +146,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget(self)
         self.tabs.addTab(editor_tab, "📝 Éditeur")
         self._feature_panels: dict[int, QWidget] = {}
+        self._TAB_CAREER = self.tabs.addTab(self._make_tab_container(), "🎯 Carrière")
         self._TAB_DUP = self.tabs.addTab(self._make_tab_container(), "🧬 Doublons")
         self._TAB_STATS = self.tabs.addTab(self._make_tab_container(), "📊 Statistiques")
         self._TAB_LOG = self.tabs.addTab(self._make_tab_container(), "📋 Log FS25")
@@ -161,6 +163,7 @@ class MainWindow(QMainWindow):
             self._make_tab_container(), "🧪 Tester les mods"
         )
         self._tab_builders = {
+            self._TAB_CAREER: self._build_career_panel,
             self._TAB_DUP: self._build_duplicates_panel,
             self._TAB_STATS: self._build_stats_panel,
             self._TAB_LOG: self._build_log_panel,
@@ -212,6 +215,14 @@ class MainWindow(QMainWindow):
         self._testrunner_worker: TestRunnerWorker | None = None
         self._testrunner_panel = None
 
+        self._backup_thread: QThread | None = None
+        self._backup_worker: ConfigBackupWorker | None = None
+        self._backup_pending = False
+        self._backup_timer = QTimer(self)
+        self._backup_timer.setSingleShot(True)
+        self._backup_timer.setInterval(2000)  # coalesce bursts of edits
+        self._backup_timer.timeout.connect(self._run_backup)
+
         self._watcher = GameWatcher(parent=self)
         self._watcher.started.connect(self._on_game_started)
         self._watcher.stopped.connect(self._on_game_stopped)
@@ -238,7 +249,7 @@ class MainWindow(QMainWindow):
             pass
 
         # Gracefully stop background threads so Qt doesn't warn on exit
-        for attr in ("_scan_thread", "_activate_thread", "_testrunner_thread"):
+        for attr in ("_scan_thread", "_activate_thread", "_testrunner_thread", "_backup_thread"):
             thread = getattr(self, attr, None)
             try:
                 if thread is not None and isinstance(thread, QThread) and thread.isRunning():
@@ -250,6 +261,37 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     # ============================================================ helpers
+
+    def _request_backup(self) -> None:
+        """Ask for a config backup; coalesced and run in a worker thread."""
+        try:
+            if not self.state.game.backup_targets:
+                return
+        except KeyError:
+            return
+        self._backup_timer.start()
+
+    def _run_backup(self) -> None:
+        if self._backup_thread is not None and self._backup_thread.isRunning():
+            self._backup_pending = True  # rerun once the current one is done
+            return
+        self._backup_worker = ConfigBackupWorker(self.state)
+        self._backup_worker.finished.connect(self._on_backup_done)
+        self._backup_worker.failed.connect(lambda msg: self._status(f"Sauvegarde config : {msg}"))
+        self._backup_thread = make_worker_thread(self._backup_worker)
+        self._backup_thread.start()
+
+    def _on_backup_done(self, reports: object) -> None:
+        from .profiles.config_backup import summarize_reports
+
+        if isinstance(reports, list) and reports:
+            text = summarize_reports(reports)
+            self.statusBar().showMessage(text, 10000)
+            if any(not r.ok for r in reports):
+                self.statusBar().setToolTip(text)
+        if self._backup_pending:
+            self._backup_pending = False
+            self._backup_timer.start()
 
     def _status(self, msg: str) -> None:
         self.statusBar().showMessage(msg, 5000)
@@ -306,6 +348,58 @@ class MainWindow(QMainWindow):
         return StatsPanel(
             self.state.catalog, self.state.profiles, self.state.collections
         )
+
+    def _career_dir_and_user_dir(self, profile) -> tuple[Path, Path] | None:
+        try:
+            game = self.state.game
+            careers = game.library_careers_dir
+            user_dir = game.mods_dir.parent
+        except KeyError:
+            return None
+        if careers is None:
+            return None
+        from .career.store import career_dir_for
+
+        return career_dir_for(careers, profile.slug), user_dir
+
+    def _sync_career(self, profile):
+        """Load a profile's career, link its savegame if obvious, and sync it.
+
+        Returns ``(career, report)``; ``report`` is ``None`` when nothing was synced.
+        """
+        from .career.store import Career
+        from .career.sync import guess_savegame, sync_career
+
+        dirs = self._career_dir_and_user_dir(profile)
+        if dirs is None:
+            return None, None
+        career_dir, user_dir = dirs
+        career = Career.load(career_dir)
+        if not career.settings.savegame:
+            career.settings.savegame = guess_savegame(profile.map_mod, user_dir)
+        if not career.settings.savegame:
+            return career, None
+        return career, sync_career(career, user_dir)
+
+    def _build_career_panel(self) -> QWidget:
+        profile = self.state.current_profile
+        if profile is None:
+            return QLabel("Sélectionne un profil à gauche pour voir sa carrière.")
+        from .career.store import CareerError
+        from .widgets.career_panel import CareerPanel
+
+        try:
+            career, report = self._sync_career(profile)
+        except CareerError as exc:
+            return QLabel(f"Données de carrière illisibles :\n{exc}")
+        if career is None:
+            return QLabel("Jeu ou bibliothèque non configuré.")
+        user_dir = self._career_dir_and_user_dir(profile)[1]
+        panel = CareerPanel(profile.name, career, user_dir, report)
+        panel.changed.connect(self._request_backup)
+        if report is not None and report.ok:
+            self._request_backup()
+        return panel
 
     def _build_log_panel(self) -> QWidget:
         try:
@@ -626,6 +720,8 @@ class MainWindow(QMainWindow):
         self.editor.set_target(prof)
         self.activate_btn.setEnabled(True)
         self._update_activate_btn_icon()
+        if hasattr(self, "_TAB_CAREER") and self.tabs.currentIndex() == self._TAB_CAREER:
+            self._rebuild_feature_tab(self._TAB_CAREER)
 
     def _select_collection(self, col) -> None:
         self.profile_list.blockSignals(True)
@@ -663,12 +759,42 @@ class MainWindow(QMainWindow):
         if not ok or not name.strip():
             return
         try:
-            self.state.new_profile(name.strip())
+            profile = self.state.new_profile(name.strip())
         except (FileExistsError, ValueError) as exc:
             QMessageBox.warning(self, "Création impossible", str(exc))
             return
         self._refresh_profiles_ui()
-        self.state.backup_config()
+        self._ask_career_scenario(profile)
+        self._request_backup()
+
+    def _ask_career_scenario(self, profile) -> None:
+        """Offer a career type for a new profile and create its starting objectives."""
+        from .career.store import Career, CareerError
+        from .career.templates import SCENARIOS, build_template
+
+        dirs = self._career_dir_and_user_dir(profile)
+        if dirs is None:
+            return
+        labels = [label for label, _key in SCENARIOS]
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Type de carrière",
+            f"Quel type de carrière souhaitez-vous pour « {profile.name} » ?\n"
+            "(des objectifs adaptés sont créés ; modifiable dans l'onglet Carrière)",
+            labels,
+            0,
+            False,
+        )
+        template_key = dict(SCENARIOS).get(choice) if ok else None
+        if template_key is None:
+            return
+        try:
+            career = Career.load(dirs[0])
+            career.add_objectives(build_template(template_key))
+            career.save()
+            self._request_backup()
+        except (CareerError, OSError) as exc:
+            QMessageBox.warning(self, "Carrière", f"Objectifs non créés : {exc}")
 
     def _on_duplicate_profile(self) -> None:
         src = self.state.current_profile
@@ -691,7 +817,7 @@ class MainWindow(QMainWindow):
         new.description = src.description
         new.save()
         self._refresh_profiles_ui()
-        self.state.backup_config()
+        self._request_backup()
 
     def _on_delete_profile(self) -> None:
         prof = self.state.current_profile
@@ -706,7 +832,7 @@ class MainWindow(QMainWindow):
             return
         self.state.delete_profile(prof)
         self._refresh_profiles_ui()
-        self.state.backup_config()
+        self._request_backup()
 
     def _on_editor_changed(self) -> None:
         target = self.editor.current_target()
@@ -723,7 +849,7 @@ class MainWindow(QMainWindow):
                 )
             # Inherited-collection counts in the editor may need refreshing.
             self.editor.set_collections(self.state.collections)
-            self.state.backup_config()
+            self._request_backup()
             self._status(f"Collection enregistrée : {target.name}")
             return
 
@@ -735,7 +861,7 @@ class MainWindow(QMainWindow):
         if row >= 0:
             self.profile_list.item(row).setText(target.name)
         self._update_activate_btn_icon()
-        self.state.backup_config()
+        self._request_backup()
         self._status(f"Profil enregistré : {path.name}")
 
     def _add_mods_to_profile(self, filenames: list[str]) -> None:
@@ -775,7 +901,7 @@ class MainWindow(QMainWindow):
                 added += 1
         if added:
             prof.save()
-            self.state.backup_config()
+            self._request_backup()
             # Reflect the change if that profile is the one being edited.
             if (
                 self.state.current_profile is not None
@@ -827,7 +953,7 @@ class MainWindow(QMainWindow):
                 added += 1
         if added:
             col.save()
-            self.state.backup_config()
+            self._request_backup()
             # Refresh collection counts + the editor (inherited list / content).
             self.editor.set_collections(self.state.collections)
             self._refresh_collections_ui()
@@ -863,7 +989,7 @@ class MainWindow(QMainWindow):
         self.editor.set_collections(self.state.collections)
         self._refresh_collections_ui()
         self._select_collection_slug(col.slug)
-        self.state.backup_config()
+        self._request_backup()
 
     def _on_duplicate_collection(self) -> None:
         src = self._current_collection()
@@ -885,7 +1011,7 @@ class MainWindow(QMainWindow):
         self.editor.set_collections(self.state.collections)
         self._refresh_collections_ui()
         self._select_collection_slug(new.slug)
-        self.state.backup_config()
+        self._request_backup()
 
     def _on_delete_collection(self) -> None:
         col = self._current_collection()
@@ -903,7 +1029,7 @@ class MainWindow(QMainWindow):
         self.editor.set_collections(self.state.collections)
         self.editor.set_target(None)
         self._refresh_collections_ui()
-        self.state.backup_config()
+        self._request_backup()
         if affected:
             QMessageBox.information(
                 self,
@@ -963,7 +1089,7 @@ class MainWindow(QMainWindow):
             self._select_collection_slug(target.slug)
         elif target is not None:
             self.editor.set_target(target)
-        self.state.backup_config()
+        self._request_backup()
 
         msg = f"{len(result.removed_files)} fichier(s) supprimé(s)."
         if result.affected_profiles:
@@ -1033,6 +1159,8 @@ class MainWindow(QMainWindow):
         if not plans:
             return
         result = self.state.import_new_mods(plans)
+        if result.affected_profiles or result.affected_collections:
+            self._request_backup()
 
         # Refresh everything the import may have touched.
         self.editor.set_catalog(self.state.catalog)
@@ -1092,7 +1220,10 @@ class MainWindow(QMainWindow):
 
         try:
             path = export_config(
-                game.library_profiles_dir, game.library_collections_dir, Path(dest)
+                game.library_profiles_dir,
+                game.library_collections_dir,
+                Path(dest),
+                game.library_careers_dir,
             )
         except OSError as exc:
             QMessageBox.critical(self, "Export échoué", str(exc))
@@ -1101,7 +1232,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Export terminé",
-            f"Profils + collections exportés vers :\n{path}",
+            f"Profils, collections et carrières exportés vers :\n{path}",
         )
 
     def _on_import_config(self) -> None:
@@ -1122,11 +1253,12 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setWindowTitle("Importer la config")
         box.setText(
-            "Comment importer les profils et collections de cette archive ?"
+            "Comment importer les profils, collections et carrières de cette archive ?"
         )
         box.setInformativeText(
             "Fusionner : ajoute/écrase par nom, garde les autres.\n"
-            "Remplacer : efface d'abord les profils/collections actuels."
+            "Remplacer : efface d'abord les profils/collections actuels "
+            "(et les carrières si l'archive en contient)."
         )
         merge_btn = box.addButton("Fusionner", QMessageBox.ButtonRole.AcceptRole)
         replace_btn = box.addButton("Remplacer", QMessageBox.ButtonRole.DestructiveRole)
@@ -1146,6 +1278,7 @@ class MainWindow(QMainWindow):
                 game.library_profiles_dir,
                 game.library_collections_dir,
                 mode=mode,
+                careers_dir=game.library_careers_dir,
             )
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Import échoué", str(exc))
@@ -1157,12 +1290,13 @@ class MainWindow(QMainWindow):
         self._refresh_collections_ui()
         self.state.refresh_profiles()
         self._refresh_profiles_ui()
-        self.state.backup_config()
+        self._request_backup()
         QMessageBox.information(
             self,
             "Import terminé",
             f"{result.profiles_imported} profil(s) et "
-            f"{result.collections_imported} collection(s) importé(s)"
+            f"{result.collections_imported} collection(s) et "
+            f"{result.careers_imported} carrière(s) importé(s)"
             + (" (remplacement)." if result.replaced else " (fusion)."),
         )
 
@@ -1186,7 +1320,7 @@ class MainWindow(QMainWindow):
         if changed:
             profile.save()
             self.editor.set_target(profile)
-            self.state.backup_config()
+            self._request_backup()
             self._status(
                 f"Profil mis à jour après audit : "
                 f"-{len(remove)} / +{len(add)} mod(s)."
@@ -1339,6 +1473,7 @@ class MainWindow(QMainWindow):
             mods_dir = self.state.game.mods_dir
         except KeyError:
             mods_dir = None
+        self._sync_career_after_game()
         self._reconcile_after_game()
         # Analyse du log FS25 de la session qui vient de se terminer : on ouvre
         # l'onglet Log uniquement si des problèmes sont détectés.
@@ -1351,6 +1486,25 @@ class MainWindow(QMainWindow):
                 self._status("Log FS25 : problèmes détectés — voir l'onglet « Log FS25 ».")
             else:
                 self._status("Log FS25 : aucun problème détecté.")
+
+    def _sync_career_after_game(self) -> None:
+        """Refresh the career of the profile that was just played."""
+        slug = self._watching_for_profile
+        profile = next((p for p in self.state.profiles if p.slug == slug), None)
+        if profile is None:
+            return
+        from .career.store import CareerError
+
+        try:
+            _career, report = self._sync_career(profile)
+        except CareerError:
+            return
+        if report is None or not report.ok:
+            return
+        self._request_backup()
+        if report.newly_completed:
+            self._status(f"🎉 {len(report.newly_completed)} objectif(s) de carrière terminé(s) !")
+            self._show_feature_tab(self._TAB_CAREER)
 
     def _reconcile_after_game(self) -> None:
         if self.state.catalog is None or self._watching_for_profile is None:
@@ -1433,7 +1587,7 @@ class MainWindow(QMainWindow):
         if changed:
             profile.save()
             self.editor.set_target(profile)
-            self.state.backup_config()
+            self._request_backup()
             self._status("Profil mis à jour après synchronisation.")
         if errors:
             QMessageBox.warning(self, "Synchronisation : erreurs", "\n".join(errors))

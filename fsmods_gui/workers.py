@@ -40,6 +40,25 @@ class ScanWorker(QObject):
         self.finished.emit(catalog)
 
 
+class ConfigBackupWorker(QObject):
+    """Mirror the config to every backup target off the GUI thread (a NAS may hang)."""
+
+    finished = Signal(object)  # list[TargetReport]
+    failed = Signal(str)
+
+    def __init__(self, state) -> None:
+        super().__init__()
+        self._state = state
+
+    def run(self) -> None:
+        try:
+            reports = self._state.backup_config()
+        except Exception as exc:  # noqa: BLE001 — surface any failure to UI
+            self.failed.emit(str(exc))
+            return
+        self.finished.emit(reports)
+
+
 class ActivateWorker(QObject):
     """Apply a profile to the game folder, with progress."""
 

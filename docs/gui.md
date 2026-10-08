@@ -34,6 +34,29 @@ D:\FS25-Library\
 
 > Pour profiter des **hardlinks** (instantanés, sans copie ni occupation disque) ce dossier doit être sur le **même volume NTFS** que `Documents\My Games\FarmingSimulator2025\`. Sinon l'activation fonctionne quand même, mais retombe sur des copies (plus lent).
 
+## Carrière / objectifs
+
+L'onglet **🎯 Carrière** transforme un profil en suivi de carrière : tu choisis la sauvegarde associée (détectée automatiquement si la carte du profil ne correspond qu'à une sauvegarde), puis tu ajoutes un **modèle** (« 📦 Ajouter un modèle… ») ou tes propres objectifs. Les objectifs sont recalculés à chaque ouverture de l'onglet, au clic sur « 🔄 Synchroniser » et à la fermeture du jeu.
+
+- **Fiabilité des valeurs** : 🟢 lue dans la sauvegarde · 🟠 calculée / estimée (ex. catégories de véhicules déduites du nom de fichier, patrimoine = argent − emprunt + prix d'achat, sans la valeur des terres) · 🔵 saisie à la main · 🔴 non disponible. La surface possédée n'est pas écrite dans la sauvegarde : utilise « ✏ Statistique manuelle… ».
+- **Modes** (par profil) : désactivé · objectifs seuls · récompenses manuelles · récompenses obligatoires.
+- **Récompenses** : l'application n'écrit jamais dans la sauvegarde. Pour une récompense en argent, « Attribuer la récompense » te guide (PowerTools, F12), puis tu confirmes — une seule fois. Un objectif déjà atteint au premier calcul est marqué terminé sans récompense due.
+- **Données** : `<library>/careers/<profil>/career.json`, `objectives.json`, `statistics.json` — indépendantes de la sauvegarde. `objectives.json` est lisible/éditable à la main (arbres de conditions `and` / `or` / `not`, prérequis `requires`).
+
+## Sauvegarder la config (Google Drive, NAS, ou les deux)
+
+Seuls les petits fichiers JSON (profils, collections, carrières) sont sauvegardés — jamais les mods. Dans `config.yaml` :
+
+```yaml
+games:
+  fs25:
+    config_backup_dirs:
+      - "G:/Mon Drive/FS25-config"     # Google Drive pour ordinateur (dossier synchronisé)
+      - "//nas/backup/FS25-config"     # partage réseau du NAS (ou lecteur mappé Z:/…)
+```
+
+Chaque cible reçoit un miroir à jour + des instantanés ZIP (`snapshots/`, 10 conservés). Une cible indisponible est signalée dans la barre de statut sans bloquer les autres. Pour restaurer : « 📥 Importer config » sur un ZIP de `snapshots/` (ou copie manuelle des JSON du miroir). Évite de jouer la même carrière sur deux PC en même temps : le dernier à écrire gagne.
+
 ## Installation
 
 ### Pour développer ou tester (depuis le dépôt)

@@ -57,6 +57,7 @@ class GameProfile:
     library_dir: Path | None = None
     steam_app_id: int | None = None
     config_backup_dir: Path | None = None  # cloud-synced folder to mirror profiles+collections
+    config_backup_dirs: tuple[Path, ...] = ()  # more targets (e.g. Google Drive + NAS share)
     downloads_dir: Path | None = None  # override; defaults to the user's Downloads folder
     inbox_dir: Path | None = None  # override; defaults to <library_dir>/_inbox
     testrunner_exe: Path | None = None  # Giants TestRunner.exe (GDN) for mod validation
@@ -121,6 +122,20 @@ class GameProfile:
     def library_autodrive_dir(self) -> Path | None:
         """Dedicated library folder for AutoDrive route packs (not mods)."""
         return self.library_dir / "autodrive" if self.library_dir else None
+
+    @property
+    def backup_targets(self) -> list[Path]:
+        """All config-backup folders: ``config_backup_dir`` first, then ``config_backup_dirs``."""
+        out: list[Path] = []
+        for d in (self.config_backup_dir, *self.config_backup_dirs):
+            if d is not None and d not in out:
+                out.append(d)
+        return out
+
+    @property
+    def library_careers_dir(self) -> Path | None:
+        """Per-profile career data (objectives, statistics), independent of the savegame."""
+        return self.library_dir / "careers" if self.library_dir else None
 
     def steam_launch_url(self) -> str | None:
         return f"steam://rungameid/{self.steam_app_id}" if self.steam_app_id else None
@@ -202,6 +217,14 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
         config_backup_dir: Path | None = None
         if backup_raw and not str(backup_raw).startswith("/path/to/"):
             config_backup_dir = Path(backup_raw).expanduser()
+        backup_dirs_raw = entry.get("config_backup_dirs") or []
+        if not isinstance(backup_dirs_raw, list):
+            raise ValueError(f"{cfg_path}: games.{key}.config_backup_dirs must be a list.")
+        config_backup_dirs = tuple(
+            Path(str(d)).expanduser()
+            for d in backup_dirs_raw
+            if d and not str(d).startswith("/path/to/")
+        )
         downloads_raw = entry.get("downloads_dir")
         downloads_dir: Path | None = None
         if downloads_raw and not str(downloads_raw).startswith("/path/to/"):
@@ -234,6 +257,7 @@ def _parse_games(raw: object, cfg_path: Path) -> dict[str, GameProfile]:
             library_dir=library_dir,
             steam_app_id=steam_app_id,
             config_backup_dir=config_backup_dir,
+            config_backup_dirs=config_backup_dirs,
             downloads_dir=downloads_dir,
             inbox_dir=inbox_dir,
             testrunner_exe=testrunner_exe,

@@ -275,8 +275,6 @@ class AppState:
 
         if result.imported and game.library_cache_dir is not None:
             self.catalog.save_cache(game.library_cache_dir / "index.json")
-        if result.affected_profiles or result.affected_collections:
-            self.backup_config()
         return result
 
     def refresh_profiles(self) -> list[Profile]:
@@ -324,21 +322,22 @@ class AppState:
 
     # -------------------------------------------------------- config backup
 
-    def backup_config(self) -> Path | None:
-        """Mirror profiles + collections to ``config_backup_dir`` if configured.
+    def backup_config(self) -> list:
+        """Mirror profiles, collections and careers to every configured backup target.
 
-        No-op (returns None) when the game has no backup folder set. Safe to call
-        after any profile/collection change — the mirror is a full overwrite.
+        Returns one :class:`TargetReport` per target (empty list when none is
+        configured). Never raises for a failing target. Blocking: the GUI runs it
+        in a worker thread (see ``ConfigBackupWorker``).
         """
         game = self.game
-        backup_dir = game.config_backup_dir
-        if backup_dir is None:
-            return None
-        from .profiles.config_backup import mirror_config
+        targets = game.backup_targets
+        if not targets:
+            return []
+        from .profiles.config_backup import backup_all
 
-        try:
-            return mirror_config(
-                game.library_profiles_dir, game.library_collections_dir, backup_dir
-            )
-        except OSError:
-            return None
+        return backup_all(
+            targets,
+            game.library_profiles_dir,
+            game.library_collections_dir,
+            game.library_careers_dir,
+        )

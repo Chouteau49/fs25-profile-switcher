@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.7.0] - 2026-10-08
+
+### Added
+
+- **🎯 Onglet « Carrière » (MVP)** : chaque profil dispose de ses propres objectifs, suivis automatiquement à partir de la sauvegarde FS25 associée.
+  - **Moteur générique de règles** (`fsmods_gui/career/objectives.py`) : un objectif = un arbre de conditions (`statistique opérateur cible`, combinables en `AND` / `OR` / `NOT`), statut, progression, difficulté (⭐ → ⭐⭐⭐⭐⭐), prérequis (objectifs « à étapes »), objectifs optionnels / cachés / manuels. La complétion est définitive ; une statistique illisible donne « 🔴 non disponible », jamais 0.
+  - **Statistiques normalisées** (`career/stats.py`) lues dans `careerSavegame.xml`, `farms.xml`, `vehicles.xml`, `placeables.xml`, `farmlands.xml`, `fields.xml`, `environment.xml` : argent, patrimoine estimé, parcelles, véhicules (marques déduites des chemins, catégories approximatives), animaux par espèce, ruches, productions, contrats, revenus/dépenses, temps de jeu, cultures en place, travaux cumulés, plus toute statistique brute de la ferme (`raw.*`). Espèces, marques et cultures sont **découvertes dynamiquement** (maps/mods inclus).
+  - **Fiabilité affichée** pour chaque valeur : 🟢 automatique, 🟠 calculée, 🔵 manuelle, 🔴 non disponible. La surface possédée n'étant pas écrite dans la sauvegarde, elle peut être saisie via **« ✏ Statistique manuelle… »** (n'écrase jamais une valeur automatique).
+  - **Tableau de bord** : cartes de statistiques, pourcentage global, compteurs terminés / en cours / non commencés, niveau + XP, badges. Filtres par catégorie, statut et difficulté.
+  - **Récompenses** : argent, XP, badge. Modes par profil : désactivé / objectifs seuls / récompenses manuelles / récompenses obligatoires (l'étape suivante reste verrouillée tant que la récompense n'est pas attribuée). L'argent n'est **jamais** injecté dans la sauvegarde : bouton « Attribuer la récompense » → instructions PowerTools (F12), puis confirmation. Une récompense n'est due qu'une fois, et pas pour un objectif déjà atteint au premier calcul.
+  - **Modèles** : Carrière classique, ETA, Élevage, Empire agricole, Hardcore ; objectifs personnalisés (numérique ou manuel).
+  - **Synchronisation** à l'ouverture de l'onglet, au bouton « 🔄 Synchroniser » et à la fermeture de FS25 : objectifs terminés / débloqués signalés. La sauvegarde est associée automatiquement si la carte du profil ne correspond qu'à une seule sauvegarde.
+  - **Stockage indépendant de la sauvegarde** : `<library_dir>/careers/<profil>/{career,objectives,statistics}.json` (écriture atomique ; l'historique des valeurs clés est conservé pour de futurs graphiques).
+  - Nouveaux : `GameProfile.library_careers_dir` (config), tests `tests/test_career.py`.
+
+### Carrière — compléments
+
+- **📈 Historique** : graphique (patrimoine, argent, revenus, surface, parcelles, animaux, véhicules, contrats, productions) construit à chaque synchronisation (`career/history.py`, `widgets/history_chart.py`).
+- **🍇 Viticulture / 🫒 Oléiculture** : catégories, modèles et statistiques dédiées (`vine.*`, `olive.*`, stocks `stock.<produit>`, raisin / olives récoltés si la sauvegarde les fournit). Les volumes cumulés (vin produit, huile vendue, revenus…) ne sont pas dans la sauvegarde : **saisie manuelle** (🔵), sinon « non disponible ».
+- **Autres modèles** : Production, Multiferme, Transport.
+- **Éditeur d'objectifs combinés** : plusieurs conditions avec **ET / OU**, case **NON** par condition, **prérequis** (objectifs à étapes) et objectif manuel, dans « ➕ Objectif perso… ».
+- **Type de carrière à la création d'un profil** : une liste (classique, ETA, élevage, viticulture, oléiculture, production, transport, multiferme, empire, personnalisé) crée les objectifs de départ.
+- **Statistiques dynamiques à zéro** : un membre absent d'une famille entièrement lue (ex. aucun champ d'olives) vaut 0, pas « inconnu » ; les chiens, non détectables, restent inconnus.
+
+### Sauvegarde de la config (Drive / NAS / les deux)
+
+- Les **carrières** sont incluses dans l'export/import ZIP et dans le miroir (les anciennes archives s'importent toujours ; elles n'effacent pas les carrières).
+- **Plusieurs cibles** : `config_backup_dirs: [...]` (en plus de `config_backup_dir`, rétrocompatible) — par exemple un dossier **Google Drive pour ordinateur** et un partage **NAS** (UNC `//nas/...` ou lecteur monté). Une cible injoignable n'empêche pas les autres ; statut dans la barre : « Sauvegarde config : 1/2 OK (…) ».
+- **Sans bloquer l'interface** : la sauvegarde tourne dans un thread, regroupée (2 s) après les modifications (`ConfigBackupWorker`).
+- **Garde-fous du miroir** : suppression uniquement dans un dossier créé par l'application (fichier `.fsmods-backup.json`), jamais si la source est vide (disque non monté), copies atomiques.
+- **Instantanés ZIP horodatés** (`<cible>/snapshots/`, 1 par heure au plus, 10 conservés) : restaurables via « 📥 Importer config ».
+- Nouveaux : `backup_all`, `snapshot_config`, `summarize_reports`, `GameProfile.backup_targets`.
+
+### Pas encore inclus
+
+Sauvegarde directe via l'API Google Drive, SFTP/WebDAV natifs ou rclone (utiliser Drive pour ordinateur / un montage réseau), fusion automatique de carrières modifiées sur deux PC (dernier écrivain gagnant : éviter de jouer la même carrière sur deux machines sans restaurer un instantané).
+
+### Build / Release
+
+- Version passée de `0.6.0` à `0.7.0`.
+
 ## [0.6.0] - 2026-06-26
 
 ### Added

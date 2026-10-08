@@ -33,6 +33,14 @@ games:
     # (the "Exporter / Importer config" buttons still work without it).
     # config_backup_dir: "C:/Users/<you>/OneDrive/FS25-config"
 
+    # Optional: several backup targets at once (e.g. Google Drive for desktop
+    # AND a NAS share). Each one gets the mirror + timestamped zip snapshots
+    # (<target>/snapshots, last 10 kept); an unreachable target never blocks
+    # the others. Profiles, collections and careers are included.
+    # config_backup_dirs:
+    #   - "G:/Mon Drive/FS25-config"
+    #   - "//nas/backup/FS25-config"
+
     # Optional: where the "📥 Nouveaux mods" view looks for freshly downloaded
     # mods to classify and import into the library. By default it scans your
     # Windows Downloads folder AND a dedicated inbox folder (<library_dir>/_inbox).

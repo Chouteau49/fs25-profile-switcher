@@ -275,3 +275,35 @@ def test_load_missing_default_mentions_searched_paths(
     assert "Searched:" in msg
     assert str(missing_default) in msg
     assert str(tmp_path / "config.yaml") in msg
+
+
+def test_backup_targets_single_multiple_and_dedup(tmp_path: Path) -> None:
+    p = tmp_path / "config.yaml"
+    p.write_text(
+        "default_game: fs25\n"
+        "games:\n"
+        "  fs25:\n"
+        "    mods_dir: /m\n"
+        "    config_backup_dir: /drive/cfg\n"
+        "    config_backup_dirs:\n"
+        "      - /nas/cfg\n"
+        "      - /drive/cfg\n"
+        "      - /path/to/placeholder\n"
+    )
+    gp = cfgmod.load(p).profile("fs25")
+    assert gp.backup_targets == [Path("/drive/cfg"), Path("/nas/cfg")]
+
+
+def test_backup_targets_default_empty(tmp_path: Path) -> None:
+    p = tmp_path / "config.yaml"
+    p.write_text("default_game: fs25\ngames:\n  fs25:\n    mods_dir: /m\n")
+    assert cfgmod.load(p).profile("fs25").backup_targets == []
+
+
+def test_backup_dirs_must_be_a_list(tmp_path: Path) -> None:
+    p = tmp_path / "config.yaml"
+    p.write_text(
+        "default_game: fs25\ngames:\n  fs25:\n    mods_dir: /m\n    config_backup_dirs: /nas\n"
+    )
+    with pytest.raises(ValueError):
+        cfgmod.load(p)
