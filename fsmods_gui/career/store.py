@@ -16,7 +16,13 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .objectives import MODE_OBJECTIVES, Objective, ObjectiveError
+from .objectives import (
+    MODE_OBJECTIVES,
+    EvaluationResult,
+    Objective,
+    ObjectiveError,
+    evaluate_objectives,
+)
 from .stats import StatsSnapshot
 
 SCHEMA_VERSION = 1
@@ -47,13 +53,28 @@ class CareerError(ValueError):
 class CareerSettings:
     mode: str = MODE_OBJECTIVES
     savegame: str = ""  # folder name, e.g. "savegame3"
+    farm: str = ""  # tracked farm id ("" = farm 1 / first farm of the savegame)
+    # Manual values: ``"<key>"`` applies to the tracked farm, ``"<farmId>|<key>"`` to that farm.
     manual_stats: dict[str, float] = field(default_factory=dict)
+
+    def manual_for(self, farm_id: str, default_farm: str) -> dict[str, float]:
+        """Manual values that apply to ``farm_id`` (unprefixed ones only to the tracked farm)."""
+        out: dict[str, float] = {}
+        for key, value in self.manual_stats.items():
+            owner, sep, stat = key.partition("|")
+            if sep:
+                if owner == farm_id:
+                    out[stat] = value
+            elif farm_id == default_farm:
+                out[key] = value
+        return out
 
     def to_dict(self) -> dict:
         return {
             "schema": SCHEMA_VERSION,
             "mode": self.mode,
             "savegame": self.savegame,
+            "farm": self.farm,
             "manual_stats": dict(self.manual_stats),
         }
 
@@ -63,6 +84,7 @@ class CareerSettings:
         return cls(
             mode=str(data.get("mode", MODE_OBJECTIVES)),
             savegame=str(data.get("savegame", "")),
+            farm=str(data.get("farm", "")),
             manual_stats={
                 str(k): float(v)
                 for k, v in (manual.items() if isinstance(manual, dict) else [])
@@ -94,6 +116,8 @@ class Career:
     settings: CareerSettings = field(default_factory=CareerSettings)
     objectives: list[Objective] = field(default_factory=list)
     snapshot: StatsSnapshot = field(default_factory=StatsSnapshot)
+    # Snapshots of the other farms that at least one objective is bound to.
+    farm_snapshots: dict[str, StatsSnapshot] = field(default_factory=dict)
     history: list[dict] = field(default_factory=list)
 
     @classmethod
@@ -114,6 +138,13 @@ class Career:
         data = _read_json(directory / STATISTICS_FILE)
         if isinstance(data, dict):
             career.snapshot = StatsSnapshot.from_dict(data.get("snapshot", {}))
+            raw_farms = data.get("farm_snapshots", {})
+            if isinstance(raw_farms, dict):
+                career.farm_snapshots = {
+                    str(k): StatsSnapshot.from_dict(v)
+                    for k, v in raw_farms.items()
+                    if isinstance(v, dict)
+                }
             history = data.get("history", [])
             career.history = [h for h in history if isinstance(h, dict)]
         return career
@@ -129,8 +160,27 @@ class Career:
             {
                 "schema": SCHEMA_VERSION,
                 "snapshot": self.snapshot.to_dict(),
+                "farm_snapshots": {k: s.to_dict() for k, s in self.farm_snapshots.items()},
                 "history": self.history[-HISTORY_LIMIT:],
             },
+        )
+
+    def snapshots_by_farm(self) -> dict[str, StatsSnapshot]:
+        """Every known snapshot keyed by farm id (tracked farm included)."""
+        out = dict(self.farm_snapshots)
+        if self.snapshot.farm_id:
+            out[self.snapshot.farm_id] = self.snapshot
+        return out
+
+    def snapshot_for(self, objective: Objective) -> StatsSnapshot:
+        if not objective.farm or objective.farm == self.snapshot.farm_id:
+            return self.snapshot
+        return self.farm_snapshots.get(objective.farm) or StatsSnapshot()
+
+    def evaluate(self) -> EvaluationResult:
+        """Recompute every objective against the stored snapshots."""
+        return evaluate_objectives(
+            self.objectives, self.snapshot, self.settings.mode, self.snapshots_by_farm()
         )
 
     def get(self, objective_id: str) -> Objective | None:

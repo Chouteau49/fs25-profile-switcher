@@ -164,7 +164,7 @@ def test_vehicles_exclude_missions_and_other_farms(tmp_path: Path) -> None:
     assert s.value("vehicles.count") == 4
     assert s.value("vehicles.value") == 420010
     assert s.value("vehicles.brand.fendt") == 2
-    assert s.value("vehicles.brand.fs25_cool") == 1  # dynamic brand from the mod
+    assert s.value("vehicles.brand.fs25_cool") == 0  # a mod's name is not a brand
     assert s.value("vehicles.type.tractor") == 1
     assert s.value("vehicles.type.harvester") == 1
     assert s.get("vehicles.type.tractor").quality == Q_CALC
@@ -538,3 +538,160 @@ def test_scenarios_point_to_existing_templates() -> None:
     assert all(k in TEMPLATES for k in keys)
     assert any(k is None for _label, k in SCENARIOS)  # "Personnalisé"
     assert {"vine", "olive"} <= set(TEMPLATES)
+
+
+# ------------------------------------------------- real-savegame layout regressions
+
+
+def _write(sg: Path, name: str, text: str) -> None:
+    (sg / name).write_text(text, encoding="utf-8")
+
+
+def test_land_read_from_farmland_xml(tmp_path: Path) -> None:
+    sg = make_save(tmp_path)
+    (sg / "farmlands.xml").rename(sg / "farmland.xml")  # the name FS25 really uses
+    assert extract_stats(sg).value("land.count") == 2
+
+
+def test_animal_entries_use_num_animals(tmp_path: Path) -> None:
+    sg = make_save(tmp_path)
+    _write(sg, "placeables.xml", """<placeables>
+      <placeable filename="data/placeables/barn.xml" farmId="1" price="1">
+        <husbandryAnimals><clusters>
+          <animal subType="COW_SIMMENTAL" numAnimals="72"/>
+          <animal subType="COW_ANGUS" numAnimals="20"/>
+          <animal subType="CHICKEN_ROOSTER" numAnimals="3"/>
+        </clusters></husbandryAnimals>
+      </placeable></placeables>""")
+    s = extract_stats(sg)
+    assert s.value("animals.cow") == 92
+    assert s.value("animals.chicken") == 3
+    assert s.value("animals.total") == 95
+
+
+def test_finance_tags_of_a_real_savegame(tmp_path: Path) -> None:
+    sg = make_save(tmp_path)
+    _write(sg, "farms.xml", """<farms><farm farmId="1" money="1">
+      <finances><stats day="1">
+        <harvestIncome>100</harvestIncome><incomeBga>10</incomeBga>
+        <invoiceIncome>5</invoiceIncome><soldMilk>20</soldMilk>
+        <purchaseSeeds>-30</purchaseSeeds><purchaseFuel>-20</purchaseFuel>
+        <invoiceExpense>-4</invoiceExpense><productionCosts>-6</productionCosts>
+        <other>999</other>
+      </stats></finances></farm></farms>""")
+    s = extract_stats(sg)
+    assert s.value("finance.income") == 135
+    assert s.value("finance.expenses") == 60
+
+
+def test_pallets_and_bales_are_not_vehicles(tmp_path: Path) -> None:
+    sg = make_save(tmp_path)
+    _write(sg, "vehicles.xml", """<vehicles>
+      <vehicle filename="data/vehicles/fendt/vario700/vario700.xml" farmId="1" price="10"/>
+      <vehicle filename="$moddir$FS25_zAutoloadPallets/xml/pallets/base/egg.xml" farmId="1" price="5"/>
+      <vehicle filename="$moddir$FS25_Pack/productions/tome.xml" farmId="1" price="5"/>
+      <vehicle filename="data/objects/pallets/x.xml" typeName="pallet" farmId="1" price="5"/>
+    </vehicles>""")
+    s = extract_stats(sg)
+    assert s.value("vehicles.count") == 1
+    assert s.value("vehicles.value") == 10
+
+
+def test_vehicle_type_and_brand_read_from_vehicle_xml(tmp_path: Path) -> None:
+    install = tmp_path / "game"
+    xml_dir = install / "data" / "vehicles" / "fendt" / "vario700"
+    xml_dir.mkdir(parents=True)
+    (xml_dir / "vario700.xml").write_text(
+        '<vehicle type="tractor"><storeData><brand>FENDT</brand>'
+        "<category>tractorsM</category></storeData></vehicle>", encoding="utf-8")
+    mods = tmp_path / "mods"
+    (mods / "FS25_Cool").mkdir(parents=True)
+    (mods / "FS25_Cool" / "cool.xml").write_text(
+        '<vehicle type="sprayerTrailed"><storeData><brand>KUHN</brand></storeData></vehicle>',
+        encoding="utf-8")
+    sg = make_save(tmp_path / "docs")
+    _write(sg, "vehicles.xml", """<vehicles>
+      <vehicle filename="data/vehicles/fendt/vario700/vario700.xml" farmId="1" price="10"/>
+      <vehicle filename="$moddir$FS25_Cool/cool.xml" farmId="1" price="5"/>
+    </vehicles>""")
+    s = extract_stats(sg, install_dir=install, mods_dir=mods)
+    assert s.value("vehicles.type.tractor") == 1  # not guessable from the filename alone
+    assert s.value("vehicles.type.sprayer") == 1
+    assert s.value("vehicles.brand.fendt") == 1
+    assert s.value("vehicles.brand.kuhn") == 1
+    assert s.value("vehicles.brand.fs25_cool") == 0
+
+
+# ------------------------------------------------------------------ multi-farm
+
+
+def test_list_farms_and_farm_selection(tmp_path: Path) -> None:
+    from fsmods_gui.career.stats import list_farms
+
+    sg = make_save(tmp_path)
+    assert [(f.id, f.name) for f in list_farms(sg)] == [("1", "Moi"), ("2", "Autre")]
+    other = extract_stats(sg, "2")
+    assert other.farm_id == "2" and other.farm_name == "Autre"
+    assert other.value("money") == 5
+    assert other.value("vehicles.count") == 1  # only farm 2's vehicle
+    assert other.value("land.count") == 1
+    assert extract_stats(sg, "99").farm_id == "1"  # unknown farm falls back to farm 1
+
+
+def test_objective_bound_to_a_farm_uses_that_farms_stats() -> None:
+    mine = snap(money=1000)
+    mine.farm_id = "1"
+    other = snap(money=50)
+    other.farm_id = "2"
+    on_default = obj("a", leaf("money", 500))
+    on_other = obj("b", leaf("money", 500), farm="2")
+    on_missing = obj("c", leaf("money", 500), farm="7")
+    evaluate_objectives([on_default, on_other, on_missing], mine, farm_snapshots={"2": other})
+    assert on_default.status == ST_COMPLETED
+    assert on_other.status != ST_COMPLETED and on_other.current_value == 50
+    assert on_missing.status == ST_UNAVAILABLE  # a vanished farm is unknown, never 0
+
+
+def test_objective_farm_roundtrip_and_template_per_farm() -> None:
+    o = obj("x", leaf("money", 1), farm="3")
+    assert Objective.from_dict(o.to_dict()).farm == "3"
+    assert Objective.from_dict({"id": "y", "name": "y"}).farm == ""
+    a, b = build_template("classic"), build_template("classic", "3")
+    assert {x.id for x in a}.isdisjoint({x.id for x in b})
+    assert all(x.farm == "3" for x in b)
+    ids = {x.id for x in b}
+    assert all(r in ids for x in b for r in x.requires)
+
+
+def test_manual_stats_are_scoped_per_farm() -> None:
+    from fsmods_gui.career.store import CareerSettings
+
+    s = CareerSettings(manual_stats={"land.area": 10.0, "2|land.area": 99.0})
+    assert s.manual_for("1", "1") == {"land.area": 10.0}
+    assert s.manual_for("2", "1") == {"land.area": 99.0}
+
+
+def test_sync_snapshots_each_farm_objectives_target(tmp_path: Path) -> None:
+    user = tmp_path / "user"
+    make_save(user)
+    career = Career(directory=tmp_path / "career")
+    career.settings.savegame = "savegame1"
+    career.objectives = [
+        obj("mine", leaf("money", 100)),
+        obj("theirs", leaf("money", 1), farm="2"),
+        obj("ghost", leaf("money", 1), farm="9"),
+    ]
+    report = sync_career(career, user)
+    assert report.ok
+    assert career.snapshot.farm_id == "1"
+    assert set(career.farm_snapshots) == {"2"}
+    by_id = {o.id: o for o in career.objectives}
+    assert by_id["mine"].status == ST_COMPLETED
+    assert by_id["theirs"].status == ST_COMPLETED  # farm 2 has 5 € >= 1
+    assert by_id["ghost"].status == ST_UNAVAILABLE
+    reloaded = Career.load(career.directory)
+    assert set(reloaded.farm_snapshots) == {"2"}
+    assert reloaded.objectives[1].farm == "2"
+    career.settings.farm = "2"
+    sync_career(career, user)
+    assert career.snapshot.farm_id == "2"

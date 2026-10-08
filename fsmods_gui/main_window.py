@@ -362,6 +362,12 @@ class MainWindow(QMainWindow):
 
         return career_dir_for(careers, profile.slug), user_dir
 
+    def _game_install_dir(self) -> Path | None:
+        try:
+            return self.state.game.install_dir
+        except KeyError:
+            return None
+
     def _sync_career(self, profile):
         """Load a profile's career, link its savegame if obvious, and sync it.
 
@@ -379,7 +385,7 @@ class MainWindow(QMainWindow):
             career.settings.savegame = guess_savegame(profile.map_mod, user_dir)
         if not career.settings.savegame:
             return career, None
-        return career, sync_career(career, user_dir)
+        return career, sync_career(career, user_dir, self._game_install_dir())
 
     def _build_career_panel(self) -> QWidget:
         profile = self.state.current_profile
@@ -395,7 +401,9 @@ class MainWindow(QMainWindow):
         if career is None:
             return QLabel("Jeu ou bibliothèque non configuré.")
         user_dir = self._career_dir_and_user_dir(profile)[1]
-        panel = CareerPanel(profile.name, career, user_dir, report)
+        panel = CareerPanel(
+            profile.name, career, user_dir, report, install_dir=self._game_install_dir()
+        )
         panel.changed.connect(self._request_backup)
         if report is not None and report.ok:
             self._request_backup()

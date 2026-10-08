@@ -37,12 +37,18 @@ from ..career.objectives import (
     Objective,
     claim_reward,
     complete_manually,
-    evaluate_objectives,
     level_for_xp,
     rewards_enabled,
     summarize,
 )
-from ..career.stats import CATEGORIES_FR, Q_NA, QUALITY_LABELS_FR, apply_manual
+from ..career.stats import (
+    CATEGORIES_FR,
+    Q_NA,
+    QUALITY_LABELS_FR,
+    FarmInfo,
+    apply_manual,
+    list_farms,
+)
 from ..career.store import Career
 from ..career.sync import SyncReport, sync_career
 from ..career.templates import TEMPLATES, build_template
@@ -76,8 +82,10 @@ class CareerPanel(QWidget):
         user_dir: Path,
         report: SyncReport | None = None,
         parent: QWidget | None = None,
+        install_dir: Path | None = None,
     ) -> None:
         super().__init__(parent)
+        self._install_dir = install_dir
         self._career = career
         self._user_dir = user_dir
         self._profile_name = profile_name
@@ -91,6 +99,16 @@ class CareerPanel(QWidget):
         idx = self.savegame_combo.findData(career.settings.savegame)
         self.savegame_combo.setCurrentIndex(max(idx, 0))
         self.savegame_combo.currentIndexChanged.connect(self._on_savegame_changed)
+
+        self._farms: list[FarmInfo] = []
+        self.farm_combo = QComboBox(self)
+        self.farm_combo.setToolTip(
+            "Ferme dont les statistiques alimentent le tableau de bord et les objectifs "
+            "sans ferme précise. Chaque objectif peut aussi viser une ferme particulière."
+        )
+        self.farm_filter = QComboBox(self)
+        self._reload_farms()
+        self.farm_combo.currentIndexChanged.connect(self._on_farm_changed)
 
         self.mode_combo = QComboBox(self)
         for key, label in MODE_LABELS_FR.items():
@@ -110,6 +128,8 @@ class CareerPanel(QWidget):
         head1 = QHBoxLayout()
         head1.addWidget(QLabel("Sauvegarde :", self))
         head1.addWidget(self.savegame_combo, 2)
+        head1.addWidget(QLabel("Ferme suivie :", self))
+        head1.addWidget(self.farm_combo, 2)
         head1.addWidget(QLabel("Mode :", self))
         head1.addWidget(self.mode_combo, 2)
         head1.addWidget(sync_btn)
@@ -161,19 +181,20 @@ class CareerPanel(QWidget):
         self.diff_filter.addItem("Toutes difficultés", userData=0)
         for key, label in DIFFICULTY_LABELS_FR.items():
             self.diff_filter.addItem(label, userData=key)
-        for combo in (self.cat_filter, self.status_filter, self.diff_filter):
+        for combo in (self.cat_filter, self.status_filter, self.diff_filter, self.farm_filter):
             combo.currentIndexChanged.connect(self._fill_table)
         filters = QHBoxLayout()
         filters.addWidget(self.cat_filter)
         filters.addWidget(self.status_filter)
         filters.addWidget(self.diff_filter)
+        filters.addWidget(self.farm_filter)
         filters.addStretch(1)
 
         self.table = QTableWidget(self)
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels(
-            ["Statut", "Objectif", "Catégorie", "Difficulté", "Progression", "Actuel / cible",
-             "Récompense"]
+            ["Statut", "Objectif", "Ferme", "Catégorie", "Difficulté", "Progression",
+             "Actuel / cible", "Récompense"]
         )
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -226,7 +247,40 @@ class CareerPanel(QWidget):
 
     # ------------------------------------------------------------- refresh
 
+    def _reload_farms(self) -> None:
+        """(Re)read the farms of the linked savegame into the picker."""
+        savegame = self._career.settings.savegame
+        self._farms = list_farms(self._user_dir / savegame) if savegame else []
+        self.farm_combo.blockSignals(True)
+        self.farm_combo.clear()
+        self.farm_combo.addItem("Automatique (ferme 1)", userData="")
+        for farm in self._farms:
+            self.farm_combo.addItem(farm.label, userData=farm.id)
+        idx = self.farm_combo.findData(self._career.settings.farm)
+        self.farm_combo.setCurrentIndex(max(idx, 0))
+        self.farm_combo.setEnabled(bool(self._farms))
+        self.farm_combo.blockSignals(False)
+
+    def _farm_label(self, farm_id: str) -> str:
+        if not farm_id:
+            return "suivie"
+        name = next((f.name for f in self._farms if f.id == farm_id), "")
+        return name or f"ferme {farm_id}"
+
+    def _reload_farm_filter(self) -> None:
+        current = self.farm_filter.currentData() if self.farm_filter.count() else None
+        used = sorted({o.farm for o in self._career.objectives if o.farm})
+        self.farm_filter.blockSignals(True)
+        self.farm_filter.clear()
+        self.farm_filter.addItem("Toutes fermes", userData=None)
+        self.farm_filter.addItem("Ferme suivie", userData="")
+        for farm in used:
+            self.farm_filter.addItem(self._farm_label(farm), userData=farm)
+        self.farm_filter.setCurrentIndex(max(self.farm_filter.findData(current), 0))
+        self.farm_filter.blockSignals(False)
+
     def _refresh(self) -> None:
+        self._reload_farm_filter()
         self._fill_cards()
         self._fill_summary()
         self._fill_rewards()
@@ -243,6 +297,8 @@ class CareerPanel(QWidget):
             if item is not None:
                 item.deleteLater()
         snapshot = self._career.snapshot
+        farm = snapshot.farm_name or (f"ferme {snapshot.farm_id}" if snapshot.farm_id else "")
+        self.cards_box.setTitle(f"Tableau de bord — {farm}" if farm else "Tableau de bord")
         for i, (key, icon) in enumerate(_CARDS):
             stat = snapshot.get(key)
             label = stat.label if stat else key
@@ -311,6 +367,7 @@ class CareerPanel(QWidget):
         cat = self.cat_filter.currentData()
         status = self.status_filter.currentData()
         diff = self.diff_filter.currentData()
+        farm = self.farm_filter.currentData() if self.farm_filter.count() else None
         out = []
         for o in self._career.objectives:
             if o.hidden and o.status in (ST_LOCKED, ST_NOT_STARTED):
@@ -320,6 +377,8 @@ class CareerPanel(QWidget):
             if status and o.status != status:
                 continue
             if diff and o.difficulty != diff:
+                continue
+            if farm is not None and o.farm != farm:
                 continue
             out.append(o)
         return sorted(
@@ -352,6 +411,7 @@ class CareerPanel(QWidget):
             values = [
                 STATUS_LABELS_FR[o.status],
                 o.name + (" (optionnel)" if o.optional else ""),
+                self._farm_label(o.farm),
                 CATEGORIES_FR.get(o.category, o.category),
                 DIFFICULTY_LABELS_FR.get(o.difficulty, ""),
                 None,
@@ -368,7 +428,7 @@ class CareerPanel(QWidget):
             bar.setRange(0, 1000)
             bar.setValue(round(o.progress * 1000))
             bar.setFormat(f"{o.progress * 100:.1f} %".replace(".", ","))
-            self.table.setCellWidget(r, 4, bar)
+            self.table.setCellWidget(r, 5, bar)
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._update_actions()
@@ -395,7 +455,7 @@ class CareerPanel(QWidget):
             bits.append("Prérequis : " + ", ".join(names.get(r, r) for r in obj.requires))
         if obj.condition is not None:
             for leaf in obj.condition.leaves():
-                stat = self._career.snapshot.get(leaf.stat)
+                stat = self._career.snapshot_for(obj).get(leaf.stat)
                 quality = QUALITY_LABELS_FR[stat.quality] if stat else QUALITY_LABELS_FR[Q_NA]
                 note = f" — {stat.note}" if stat and stat.note else ""
                 bits.append(f"{leaf.stat} : {quality}{note}")
@@ -418,13 +478,19 @@ class CareerPanel(QWidget):
         self.sync_label.setText("<br>".join(lines))
 
     def _on_sync_clicked(self) -> None:
-        report = sync_career(self._career, self._user_dir)
+        report = sync_career(self._career, self._user_dir, self._install_dir)
+        self._reload_farms()
         self._show_report(report)
         self._refresh()
         self.changed.emit()
 
     def _on_savegame_changed(self) -> None:
         self._career.settings.savegame = self.savegame_combo.currentData() or ""
+        self._career.save()
+        self._on_sync_clicked()
+
+    def _on_farm_changed(self) -> None:
+        self._career.settings.farm = self.farm_combo.currentData() or ""
         self._career.save()
         self._on_sync_clicked()
 
@@ -439,9 +505,7 @@ class CareerPanel(QWidget):
         self.changed.emit()
 
     def _reevaluate(self) -> None:
-        evaluate_objectives(
-            self._career.objectives, self._career.snapshot, self._career.settings.mode
-        )
+        self._career.evaluate()
 
     def _on_add_template(self) -> None:
         keys = list(TEMPLATES)
@@ -452,7 +516,10 @@ class CareerPanel(QWidget):
         if not ok:
             return
         tpl = TEMPLATES[keys[names.index(choice)]]
-        added = self._career.add_objectives(build_template(tpl.key))
+        farm = self._ask_farm()
+        if farm is None:
+            return
+        added = self._career.add_objectives(build_template(tpl.key, farm))
         self._reevaluate()
         self._persist_and_refresh()
         QMessageBox.information(
@@ -460,8 +527,23 @@ class CareerPanel(QWidget):
             + ("\nLes déjà présents ont été ignorés." if added < len(tpl.specs) else "")
         )
 
+    def _ask_farm(self) -> str | None:
+        """Farm a batch of objectives applies to; ``""`` = tracked farm, ``None`` = cancelled."""
+        if not self._farms:
+            return ""
+        labels = ["Ferme suivie par la carrière"] + [f.label for f in self._farms]
+        choice, ok = QInputDialog.getItem(
+            self, "Ferme concernée", "Ces objectifs concernent quelle ferme ?", labels, 0, False
+        )
+        if not ok:
+            return None
+        pos = labels.index(choice)
+        return "" if pos == 0 else self._farms[pos - 1].id
+
     def _on_add_custom(self) -> None:
-        dlg = ObjectiveDialog(self._career.snapshot, self._career.objectives, self)
+        dlg = ObjectiveDialog(
+            self._career.snapshot, self._career.objectives, self, farms=self._farms
+        )
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
         self._career.add_objectives([dlg.build()])
@@ -469,7 +551,13 @@ class CareerPanel(QWidget):
         self._persist_and_refresh()
 
     def _on_manual_stat(self) -> None:
-        dlg = ManualStatDialog(self._career.snapshot, self._career.settings.manual_stats, self)
+        dlg = ManualStatDialog(
+            self._career.snapshot,
+            self._career.settings.manual_stats,
+            self,
+            farms=self._farms,
+            tracked_farm=self._career.snapshot.farm_id,
+        )
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
         entry = dlg.result_entry()

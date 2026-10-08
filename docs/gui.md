@@ -36,7 +36,7 @@ D:\FS25-Library\
 
 ## Carrière / objectifs
 
-L'onglet **🎯 Carrière** transforme un profil en suivi de carrière : tu choisis la sauvegarde associée (détectée automatiquement si la carte du profil ne correspond qu'à une sauvegarde), puis tu ajoutes un **modèle** (« 📦 Ajouter un modèle… ») ou tes propres objectifs. Les objectifs sont recalculés à chaque ouverture de l'onglet, au clic sur « 🔄 Synchroniser » et à la fermeture du jeu.
+L'onglet **🎯 Carrière** transforme un profil en suivi de carrière : tu choisis la sauvegarde associée (détectée automatiquement si la carte du profil ne correspond qu'à une sauvegarde), puis tu ajoutes un **modèle** (« 📦 Ajouter un modèle… ») ou tes propres objectifs. Avec une carte à **plusieurs fermes**, choisis la « Ferme suivie » et rattache chaque objectif (ou modèle) à la ferme voulue : chacun est mesuré sur les statistiques de sa ferme. Les objectifs sont recalculés à chaque ouverture de l'onglet, au clic sur « 🔄 Synchroniser » et à la fermeture du jeu.
 
 - **Fiabilité des valeurs** : 🟢 lue dans la sauvegarde · 🟠 calculée / estimée (ex. catégories de véhicules déduites du nom de fichier, patrimoine = argent − emprunt + prix d'achat, sans la valeur des terres) · 🔵 saisie à la main · 🔴 non disponible. La surface possédée n'est pas écrite dans la sauvegarde : utilise « ✏ Statistique manuelle… ».
 - **Modes** (par profil) : désactivé · objectifs seuls · récompenses manuelles · récompenses obligatoires.

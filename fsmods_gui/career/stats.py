@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
+import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -71,6 +72,8 @@ class Stat:
 class StatsSnapshot:
     savegame: str = ""
     taken_at: str = ""
+    farm_id: str = ""  # farm these figures belong to ("" = unknown / legacy snapshot)
+    farm_name: str = ""
     stats: dict[str, Stat] = field(default_factory=dict)
     # Dynamic families whose source file was read completely: a member that is
     # absent really is zero (e.g. no wheat field), not "unknown".
@@ -96,6 +99,8 @@ class StatsSnapshot:
         return {
             "savegame": self.savegame,
             "taken_at": self.taken_at,
+            "farm_id": self.farm_id,
+            "farm_name": self.farm_name,
             "complete_prefixes": sorted(self.complete_prefixes),
             "stats": {
                 k: {
@@ -113,7 +118,10 @@ class StatsSnapshot:
     @classmethod
     def from_dict(cls, data: dict) -> StatsSnapshot:
         snap = cls(
-            savegame=str(data.get("savegame", "")), taken_at=str(data.get("taken_at", ""))
+            savegame=str(data.get("savegame", "")),
+            taken_at=str(data.get("taken_at", "")),
+            farm_id=str(data.get("farm_id", "")),
+            farm_name=str(data.get("farm_name", "")),
         )
         prefixes = data.get("complete_prefixes", [])
         if isinstance(prefixes, list):
@@ -217,8 +225,13 @@ VEHICLE_TYPE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("truck", ("truck", "lorry", "camion")),
 ]
 
-_INCOME_TAG_RE = re.compile(r"(Income|^sold[A-Z])")
-_EXPENSE_TAG_RE = re.compile(r"(Cost|Costs|Maintenance|Payment|Interest|Purchase|Expenses)$")
+# Tags seen in the <finances><stats> blocks of a real FS25 savegame: income is
+# ``harvestIncome``/``incomeBga``/``soldMilk``/``fieldSelling``…, expenses are
+# ``newVehiclesCost``/``purchaseSeeds``/``invoiceExpense``/``fieldPurchase``…
+_INCOME_TAG_RE = re.compile(r"(Income|^income|^sold[A-Z]|Selling)")
+_EXPENSE_TAG_RE = re.compile(
+    r"((Cost|Costs|Maintenance|Payment|Interest|Purchase|Expense|Expenses)$|^purchase|^buy[A-Z])"
+)
 _MISSION_COUNT_RE = re.compile(r"MissionCount$")
 
 
@@ -263,6 +276,8 @@ def _parse_xml(path: Path) -> ET.Element | None:
 class _Collector:
     stats: dict[str, Stat] = field(default_factory=dict)
     complete_prefixes: set[str] = field(default_factory=set)
+    farm_id: str = ""
+    farm_name: str = ""
 
     def put(
         self,
@@ -290,22 +305,53 @@ class _Collector:
 # ------------------------------------------------------------------ extraction
 
 
+@dataclass(frozen=True)
+class FarmInfo:
+    id: str
+    name: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.name} (ferme {self.id})" if self.name else f"Ferme {self.id}"
+
+
+def list_farms(savegame_dir: Path) -> list[FarmInfo]:
+    """Every farm of the savegame (a solo map can define several, e.g. Le Mechet)."""
+    root = _parse_xml(savegame_dir / "farms.xml")
+    if root is None:
+        return []
+    return [
+        FarmInfo(f.get("farmId", ""), f.get("name", ""))
+        for f in root.iter("farm")
+        if f.get("farmId") and f.get("money") is not None
+    ]
+
+
 def _farm_ids_and_main(
-    root: ET.Element | None,
+    root: ET.Element | None, wanted: str | None = None
 ) -> tuple[set[str], ET.Element | None]:
+    """All farm ids + the tracked farm element (``wanted``, else farm 1, else the first)."""
     if root is None:
         return set(), None
-    farms = [f for f in root.iter("farm") if f.get("farmId")]
+    farms = [f for f in root.iter("farm") if f.get("farmId") and f.get("money") is not None]
     ids = {f.get("farmId", "") for f in farms}
-    main = next((f for f in farms if f.get("farmId") == "1"), farms[0] if farms else None)
+    main = None
+    if wanted:
+        main = next((f for f in farms if f.get("farmId") == wanted), None)
+    if main is None:
+        main = next((f for f in farms if f.get("farmId") == "1"), farms[0] if farms else None)
     return ids, main
 
 
-def _extract_farms(c: _Collector, root: ET.Element | None) -> tuple[set[str], str | None]:
-    farm_ids, main = _farm_ids_and_main(root)
+def _extract_farms(
+    c: _Collector, root: ET.Element | None, wanted: str | None = None
+) -> tuple[set[str], str | None]:
+    farm_ids, main = _farm_ids_and_main(root, wanted)
     if main is None:
         return set(), None
     main_id = main.get("farmId")
+    c.farm_id = main_id or ""
+    c.farm_name = main.get("name") or ""
     c.put("farms.count", float(len(farm_ids)))
     money = _num(main.get("money"))
     if money is not None:
@@ -379,6 +425,69 @@ def _is_owned(el: ET.Element, farm_ids: set[str], main_id: str | None) -> bool:
     return farm_id == main_id
 
 
+class VehicleResolver:
+    """Reads ``type`` / ``<brand>`` / ``<category>`` from a vehicle's own XML.
+
+    The savegame stores neither, but the game install (``data/…``) and the mods
+    (``$moddir$<mod>/…``, folder or zip) do. Best effort: an unreadable file just
+    falls back to the filename heuristic.
+    """
+
+    _HEAD = 24000
+
+    def __init__(self, install_dir: Path | None = None, mods_dir: Path | None = None) -> None:
+        self._install = install_dir
+        self._mods = mods_dir
+        self._cache: dict[str, tuple[str, str, str] | None] = {}
+
+    def _read(self, filename: str) -> str | None:
+        name = filename.replace("\\", "/")
+        try:
+            if name.startswith("$data/") or name.startswith("data/"):
+                if self._install is None:
+                    return None
+                rel = name.split("/", 1)[1]
+                path = self._install / "data" / rel
+                return path.read_text(encoding="utf-8", errors="replace")[: self._HEAD]
+            if name.startswith("$moddir$") and self._mods is not None:
+                mod, _, rel = name[len("$moddir$"):].partition("/")
+                folder = self._mods / mod
+                if folder.is_dir():
+                    text = (folder / rel).read_text(encoding="utf-8", errors="replace")
+                    return text[: self._HEAD]
+                archive = self._mods / f"{mod}.zip"
+                if archive.is_file():
+                    with zipfile.ZipFile(archive) as zf:
+                        return zf.read(rel).decode("utf-8", errors="replace")[: self._HEAD]
+        except (OSError, KeyError, zipfile.BadZipFile):
+            return None
+        return None
+
+    def info(self, filename: str) -> tuple[str, str, str] | None:
+        """``(type, brand, category)`` lower-cased, or ``None`` if the XML is unreadable."""
+        if filename not in self._cache:
+            text = self._read(filename)
+            result = None
+            if text is not None:
+                vtype = re.search(r'<vehicle\b[^>]*?\btype="([^"]+)"', text)
+                brand = re.search(r"<brand>\s*([^<\s]+)\s*</brand>", text)
+                cat = re.search(r"<category>\s*([^<\s]+)\s*</category>", text)
+                result = (
+                    vtype.group(1).lower() if vtype else "",
+                    brand.group(1).lower() if brand else "",
+                    cat.group(1).lower() if cat else "",
+                )
+            self._cache[filename] = result
+        return self._cache[filename]
+
+
+# Loose objects stored in vehicles.xml that are not machines (pallets, bales, big bags…).
+_NON_VEHICLE_TYPE = re.compile(r"pallet|bigbag|bale|treetransport", re.IGNORECASE)
+_NON_VEHICLE_CATEGORY = frozenset({"pallets", "bigbags", "bales", "misc", "objects"})
+_NON_VEHICLE_PATH = re.compile(r"(pallet|bigbag|/bales?/|/productions/|/objects/)", re.IGNORECASE)
+_NO_BRAND = frozenset({"", "none", "lizard", "misc"})
+
+
 def _vehicle_brand(filename: str) -> str | None:
     """Brand folder of a base-game path (``data/vehicles/<brand>/<model>/…``)."""
     parts = filename.replace("\\", "/").split("/")
@@ -399,35 +508,61 @@ def _vehicle_type(filename: str, type_name: str) -> str | None:
 
 
 def _extract_vehicles(
-    c: _Collector, root: ET.Element | None, farm_ids: set[str], main_id: str | None
+    c: _Collector,
+    root: ET.Element | None,
+    farm_ids: set[str],
+    main_id: str | None,
+    resolver: VehicleResolver | None = None,
 ) -> None:
     if root is None:
         return
     c.complete_prefixes.update({"vehicles.type.", "vehicles.brand."})
+    resolver = resolver or VehicleResolver()
     count = 0
     value = 0.0
     brands: dict[str, int] = {}
     types: dict[str, int] = {}
+    resolved = 0
     for veh in root.iter("vehicle"):
         filename = veh.get("filename") or ""
         if not filename or not _is_owned(veh, farm_ids, main_id):
             continue
+        info = resolver.info(filename)
+        type_name = veh.get("typeName") or veh.get("type") or (info[0] if info else "")
+        category = info[2] if info else ""
+        if (
+            _NON_VEHICLE_TYPE.search(type_name)
+            or category in _NON_VEHICLE_CATEGORY
+            or _NON_VEHICLE_PATH.search(filename)
+        ):
+            continue
         count += 1
         value += _num(veh.get("price")) or 0.0
-        brand = _vehicle_brand(filename)
-        if brand is None and veh.get("modName"):
-            brand = (veh.get("modName") or "").lower()
-        if brand:
+        brand = info[1] if info and info[1] not in _NO_BRAND else _vehicle_brand(filename)
+        if brand and brand not in _NO_BRAND:
             brands[brand] = brands.get(brand, 0) + 1
-        vtype = _vehicle_type(filename, veh.get("typeName") or veh.get("type") or "")
+        vtype = _vehicle_type(filename, type_name)
+        if vtype is None and type_name:
+            vtype = type_name.lower()
         if vtype:
             types[vtype] = types.get(vtype, 0) + 1
+        if info is not None:
+            resolved += 1
     c.put("vehicles.count", float(count))
-    c.put("vehicles.value", value, Q_CALC, "Somme des prix d'achat (sans dépréciation).")
-    heur = "Catégorie déduite du nom de fichier : approximatif."
+    c.put(
+        "vehicles.value",
+        value,
+        Q_CALC,
+        "Somme des prix d'achat (sans dépréciation). Palettes et balles exclues.",
+    )
+    heur = (
+        "Type lu dans le XML du véhicule."
+        if count and resolved == count
+        else "Type lu dans le XML du véhicule quand il est trouvé, sinon déduit du nom de fichier."
+    )
     for brand, n in sorted(brands.items()):
-        c.put(f"vehicles.brand.{brand}", float(n), Q_CALC, "Marque déduite du chemin du véhicule.")
-    c.put("vehicles.brands", float(len(brands)), Q_CALC, "Marques déduites des chemins.")
+        c.put(f"vehicles.brand.{brand}", float(n), Q_CALC, "Marque lue dans le XML du véhicule.")
+    c.put("vehicles.brands", float(len(brands)), Q_CALC, "Marques des véhicules possédés.")
     for vtype, n in sorted(types.items()):
         c.put(f"vehicles.type.{vtype}", float(n), Q_CALC, heur)
     c.put("vehicles.types", float(len(types)), Q_CALC, heur)
@@ -467,7 +602,7 @@ def _extract_placeables(
             if not sub:
                 continue
             sp = sub.split("_", 1)[0].lower()
-            n = _num(animal.get("numAnimals")) if animal.tag == "cluster" else None
+            n = _num(animal.get("numAnimals"))  # one <animal> entry = a group of numAnimals
             species[sp] = species.get(sp, 0.0) + (n if n is not None else 1.0)
 
     c.put("placeables.count", float(count))
@@ -497,6 +632,7 @@ def _extract_land(
 ) -> None:
     if root is None:
         return
+    # farmland.xml only stores id + farmId: the area is not in the savegame.
     owned = [
         fl for fl in root.iter("farmland") if fl.get("farmId") not in (None, "", "0")
         and (not farm_ids or fl.get("farmId") == main_id)
@@ -588,20 +724,32 @@ def _finalise(c: _Collector) -> None:
         )
 
 
-def extract_stats(savegame_dir: Path) -> StatsSnapshot:
-    """Read every available statistic from a savegame folder."""
+def extract_stats(
+    savegame_dir: Path,
+    farm_id: str | None = None,
+    *,
+    install_dir: Path | None = None,
+    mods_dir: Path | None = None,
+) -> StatsSnapshot:
+    """Read every available statistic of one farm (default: farm 1) from a savegame folder."""
     c = _Collector()
     career = _parse_xml(savegame_dir / "careerSavegame.xml")
-    farm_ids, main_id = _extract_farms(c, _parse_xml(savegame_dir / "farms.xml"))
-    _extract_vehicles(c, _parse_xml(savegame_dir / "vehicles.xml"), farm_ids, main_id)
+    farm_ids, main_id = _extract_farms(c, _parse_xml(savegame_dir / "farms.xml"), farm_id)
+    resolver = VehicleResolver(install_dir, mods_dir)
+    _extract_vehicles(c, _parse_xml(savegame_dir / "vehicles.xml"), farm_ids, main_id, resolver)
     _extract_placeables(c, _parse_xml(savegame_dir / "placeables.xml"), farm_ids, main_id)
-    _extract_land(c, _parse_xml(savegame_dir / "farmlands.xml"), farm_ids, main_id)
+    land = savegame_dir / "farmland.xml"
+    if not land.is_file():
+        land = savegame_dir / "farmlands.xml"  # older / hand-made layouts
+    _extract_land(c, _parse_xml(land), farm_ids, main_id)
     _extract_crops(c, _parse_xml(savegame_dir / "fields.xml"))
     _extract_time(c, career, _parse_xml(savegame_dir / "environment.xml"))
     _finalise(c)
     return StatsSnapshot(
         savegame=savegame_dir.name,
         taken_at=datetime.now().isoformat(timespec="seconds"),
+        farm_id=c.farm_id,
+        farm_name=c.farm_name,
         stats=c.stats,
         complete_prefixes=c.complete_prefixes,
     )

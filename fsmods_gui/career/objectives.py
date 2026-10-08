@@ -14,6 +14,7 @@ Pure logic, no Qt.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -244,6 +245,8 @@ class Objective:
     hidden: bool = False
     requires: list[str] = field(default_factory=list)
     reward: Reward = field(default_factory=Reward)
+    # Farm whose statistics the objective measures ("" = the career's tracked farm).
+    farm: str = ""
     template: str = ""
     created_at: str = ""
     completed_at: str | None = None
@@ -300,6 +303,7 @@ class Objective:
             "optional": self.optional,
             "hidden": self.hidden,
             "requires": list(self.requires),
+            "farm": self.farm,
             "reward": self.reward.to_dict(),
             "rewardState": self.reward_state,
             "rewardClaimedAt": self.reward_claimed_at,
@@ -345,6 +349,7 @@ class Objective:
             hidden=bool(data.get("hidden", False)),
             requires=[str(r) for r in data.get("requires", [])],
             reward=Reward.from_dict(data.get("reward")),
+            farm=str(data.get("farm") or ""),
             template=str(data.get("template", "")),
             created_at=str(data.get("createdAt", "")),
             completed_at=data.get("completedAt"),
@@ -377,8 +382,13 @@ def evaluate_objectives(
     objectives: list[Objective],
     snapshot: StatsSnapshot,
     mode: str = MODE_OBJECTIVES,
+    farm_snapshots: Mapping[str, StatsSnapshot] | None = None,
 ) -> EvaluationResult:
     """Recompute status/progress of every objective in place.
+
+    An objective bound to a farm (``obj.farm``) is measured on that farm's snapshot
+    from ``farm_snapshots``; a missing snapshot means "unavailable", never 0. The
+    others use ``snapshot`` (the career's tracked farm).
 
     Completion is sticky: once completed an objective stays completed (a later
     drop of a statistic does not take it back). Objectives already satisfied the
@@ -395,7 +405,10 @@ def evaluate_objectives(
         for obj in objectives:
             if obj.completed:
                 continue
-            ev = evaluate(obj.condition, snapshot) if obj.condition else None
+            source = snapshot
+            if obj.farm:
+                source = (farm_snapshots or {}).get(obj.farm) or StatsSnapshot()
+            ev = evaluate(obj.condition, source) if obj.condition else None
             if ev is not None:
                 obj.progress = ev.progress
                 obj.current_value = ev.current

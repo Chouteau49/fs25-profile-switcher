@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..profiles.savegame_audit import list_savegames, parse_savegame
 from .formatting import format_value
-from .objectives import MODE_OFF, Objective, evaluate_objectives
+from .objectives import MODE_OFF, Objective
 from .stats import Q_NA, StatsSnapshot, apply_manual, extract_stats
 from .store import Career
 
@@ -31,8 +31,13 @@ def _detected_lines(snapshot: StatsSnapshot) -> list[str]:
     return lines
 
 
-def sync_career(career: Career, user_dir: Path) -> SyncReport:
-    """Run the full sync. Never raises on missing data: the report explains why."""
+def sync_career(career: Career, user_dir: Path, install_dir: Path | None = None) -> SyncReport:
+    """Run the full sync. Never raises on missing data: the report explains why.
+
+    The tracked farm (``settings.farm``) feeds the dashboard; every other farm an
+    objective is bound to gets its own snapshot. ``install_dir`` (game folder) lets
+    vehicle types / brands be read from the base-game vehicle XMLs.
+    """
     if career.settings.mode == MODE_OFF:
         return SyncReport(message="Carrière désactivée pour ce profil.")
     if not career.settings.savegame:
@@ -41,14 +46,34 @@ def sync_career(career: Career, user_dir: Path) -> SyncReport:
     if not (savegame / "careerSavegame.xml").is_file():
         return SyncReport(message=f"Sauvegarde introuvable : {savegame}")
 
-    snapshot = apply_manual(extract_stats(savegame), career.settings.manual_stats)
+    def read(farm: str) -> StatsSnapshot:
+        return extract_stats(
+            savegame, farm or None, install_dir=install_dir, mods_dir=user_dir / "mods"
+        )
+
+    snapshot = read(career.settings.farm)
+    tracked = snapshot.farm_id
+    apply_manual(snapshot, career.settings.manual_for(tracked, tracked))
+    others: dict[str, StatsSnapshot] = {}
+    for farm in sorted({o.farm for o in career.objectives if o.farm} - {tracked}):
+        other = read(farm)
+        if other.farm_id != farm:  # that farm no longer exists in the savegame
+            continue
+        apply_manual(other, career.settings.manual_for(farm, tracked))
+        others[farm] = other
     career.snapshot = snapshot
-    result = evaluate_objectives(career.objectives, snapshot, career.settings.mode)
+    career.farm_snapshots = others
+    result = career.evaluate()
     career.record_history()
     career.save()
 
     unavailable = sum(1 for s in snapshot.stats.values() if s.quality == Q_NA)
-    message = f"Synchronisé avec {savegame.name}."
+    message = f"Synchronisé avec {savegame.name}"
+    if snapshot.farm_name:
+        message += f" — ferme « {snapshot.farm_name} »"
+    message += "."
+    if career.settings.farm and tracked != career.settings.farm:
+        message += f" ⚠ La ferme {career.settings.farm} n'existe plus : ferme {tracked} utilisée."
     if unavailable:
         message += f" {unavailable} statistique(s) non disponible(s)."
     return SyncReport(

@@ -31,7 +31,7 @@ from ..career.objectives import (
     Reward,
     now_iso,
 )
-from ..career.stats import CATEGORIES_FR, STAT_DEFS, StatsSnapshot, label_for
+from ..career.stats import CATEGORIES_FR, STAT_DEFS, FarmInfo, StatsSnapshot, label_for
 
 _MAX = 1e12
 
@@ -45,6 +45,17 @@ def _stat_choices(snapshot: StatsSnapshot) -> list[tuple[str, str]]:
         label = stat.label if stat and stat.label else label_for(key)[0]
         out.append((key, label))
     return sorted(out, key=lambda kv: kv[1].lower())
+
+
+def farm_combo(
+    farms: list[FarmInfo], parent: QWidget | None = None, *, follow_label: str
+) -> QComboBox:
+    """Farm picker: first entry (data ``""``) follows the career's tracked farm."""
+    combo = QComboBox(parent)
+    combo.addItem(follow_label, userData="")
+    for farm in farms:
+        combo.addItem(farm.label, userData=farm.id)
+    return combo
 
 
 class _ConditionRow(QWidget):
@@ -106,9 +117,11 @@ class ObjectiveDialog(QDialog):
         snapshot: StatsSnapshot,
         existing: list[Objective] | None = None,
         parent: QWidget | None = None,
+        farms: list[FarmInfo] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Nouvel objectif personnalisé")
+        self.farm = farm_combo(farms or [], self, follow_label="Ferme suivie par la carrière")
         self._snapshot = snapshot
         self._rows: list[_ConditionRow] = []
 
@@ -159,6 +172,8 @@ class ObjectiveDialog(QDialog):
         form.addRow("Nom :", self.name_edit)
         form.addRow("Description :", self.desc_edit)
         form.addRow("Catégorie :", self.category)
+        if farms:
+            form.addRow("Ferme concernée :", self.farm)
         form.addRow("", self.manual)
         form.addRow("Combinaison :", self.combinator)
         layout = QVBoxLayout(self)
@@ -242,6 +257,7 @@ class ObjectiveDialog(QDialog):
             difficulty=int(self.difficulty.currentData()),
             optional=self.optional.isChecked(),
             requires=requires,
+            farm=self.farm.currentData() or "",
             reward=Reward(money=self.money.value(), xp=self.xp.value(),
                           badge=self.badge.text().strip()),
             template="custom",
@@ -253,11 +269,21 @@ class ManualStatDialog(QDialog):
     """Type in (or clear) a value for a statistic the savegame cannot give."""
 
     def __init__(
-        self, snapshot: StatsSnapshot, manual: dict[str, float], parent: QWidget | None = None
+        self,
+        snapshot: StatsSnapshot,
+        manual: dict[str, float],
+        parent: QWidget | None = None,
+        farms: list[FarmInfo] | None = None,
+        tracked_farm: str = "",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Statistique manuelle")
         self._manual = manual
+        self._tracked = tracked_farm
+        self.farm = QComboBox(self)
+        for farm in farms or []:
+            self.farm.addItem(farm.label, userData=farm.id)
+        self.farm.setCurrentIndex(max(self.farm.findData(tracked_farm), 0))
         intro = QLabel(
             "Pour une statistique que la sauvegarde ne fournit pas (ex. la surface "
             "possédée). Elle est affichée « 🔵 Manuelle » et n'écrase jamais une valeur "
@@ -271,6 +297,7 @@ class ManualStatDialog(QDialog):
                 suffix = " ✎" if key in manual else ""
                 self.stat.addItem(f"{label}  [{key}]{suffix}", userData=key)
         self.stat.currentIndexChanged.connect(self._on_changed)
+        self.farm.currentIndexChanged.connect(self._on_changed)
         self.value = QDoubleSpinBox(self)
         self.value.setRange(-_MAX, _MAX)
         self.value.setDecimals(2)
@@ -278,6 +305,8 @@ class ManualStatDialog(QDialog):
         self.clear = QCheckBox("Supprimer la valeur saisie", self)
 
         form = QFormLayout()
+        if farms:
+            form.addRow("Ferme :", self.farm)
         form.addRow("Statistique :", self.stat)
         form.addRow("Valeur :", self.value)
         form.addRow("", self.clear)
@@ -293,15 +322,20 @@ class ManualStatDialog(QDialog):
         self._on_changed()
         self.resize(520, self.sizeHint().height())
 
+    def _storage_key(self, key: str) -> str:
+        """Unprefixed for the tracked farm, ``"<farm>|<key>"`` for any other farm."""
+        farm = self.farm.currentData() or ""
+        return key if not farm or farm == self._tracked else f"{farm}|{key}"
+
     def _on_changed(self) -> None:
         key = self.stat.currentData()
-        self.value.setValue(self._manual.get(key, 0.0) if key else 0.0)
+        self.value.setValue(self._manual.get(self._storage_key(key), 0.0) if key else 0.0)
 
     def result_entry(self) -> tuple[str, float | None] | None:
         key = self.stat.currentData()
         if not key:
             return None
-        return (str(key), None if self.clear.isChecked() else self.value.value())
+        return (self._storage_key(str(key)), None if self.clear.isChecked() else self.value.value())
 
 
 def confirm_reward(parent: QWidget, objective: Objective) -> bool:

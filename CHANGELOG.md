@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.1] - 2026-10-08
+
+### Added
+
+- **🏡 Objectifs par ferme** : une partie multi-fermes (ex. Le Mechet : 6 fermes) peut désormais avoir des objectifs différents par ferme. Sélecteur « Ferme suivie » (tableau de bord + objectifs sans ferme précise), ferme choisie à la création d'un objectif perso ou d'un modèle (le même modèle peut être appliqué à chaque ferme, ids `modèle.clé@ferme`), colonne et filtre « Ferme » dans le tableau, statistiques manuelles par ferme (`<ferme>|<stat>`). Chaque ferme visée a son propre instantané (`farm_snapshots` dans `statistics.json`) ; une ferme disparue donne « non disponible », jamais 0.
+
+### Fixed (vérifié contre une vraie sauvegarde FS25)
+
+- Parcelles : le jeu écrit `farmland.xml` (et non `farmlands.xml`) — `land.count` n'était jamais lu.
+- Animaux : une entrée `<animal numAnimals="72">` comptait pour 1 (132 animaux au lieu de 9 sur « La bergerie »).
+- Véhicules : palettes, balles et fichiers de production (AutoloadPallets…) ne sont plus comptés ; types et marques sont lus dans le XML du véhicule (jeu installé + mods, dossier ou zip) au lieu d'être devinés ; le nom d'un mod n'est plus une « marque ».
+- Revenus / dépenses : prise en compte de `purchase*`, `invoiceExpense`, `incomeBga`, `fieldSelling`, `buy*`.
+
 ## [0.7.0] - 2026-10-08
 
 ### Added

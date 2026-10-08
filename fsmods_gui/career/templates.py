@@ -358,9 +358,14 @@ SCENARIOS: tuple[tuple[str, str | None], ...] = (
 )
 
 
-def build_template(key: str) -> list[Objective]:
-    """Expand a template into fresh objectives (ids are ``<template>.<key>``)."""
+def build_template(key: str, farm: str = "") -> list[Objective]:
+    """Expand a template into fresh objectives (ids are ``<template>.<key>``).
+
+    With ``farm`` the objectives are bound to that farm and the ids get an ``@<farm>``
+    suffix, so the same template can be applied once per farm.
+    """
     tpl = TEMPLATES[key]
+    suffix = f"@{farm}" if farm else ""
     created = now_iso()
     out: list[Objective] = []
     for i, spec in enumerate(tpl.specs):
@@ -368,7 +373,7 @@ def build_template(key: str) -> list[Objective]:
         condition = leaves[0] if len(leaves) == 1 else Condition(op="and", children=leaves)
         out.append(
             Objective(
-                id=f"{tpl.key}.{spec.key}",
+                id=f"{tpl.key}.{spec.key}{suffix}",
                 name=spec.name,
                 description=spec.description,
                 category=spec.category,
@@ -376,7 +381,8 @@ def build_template(key: str) -> list[Objective]:
                 difficulty=spec.difficulty,
                 priority=i,
                 optional=spec.optional,
-                requires=[f"{tpl.key}.{r}" for r in spec.requires],
+                requires=[f"{tpl.key}.{r}{suffix}" for r in spec.requires],
+                farm=farm,
                 reward=Reward(money=spec.money, xp=spec.xp, badge=spec.badge),
                 template=tpl.key,
                 created_at=created,
