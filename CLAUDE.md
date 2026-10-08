@@ -12,8 +12,7 @@ Environnement : Windows, venv `.venv` (dev) ; `.venv313` sert au build Nuitka.
 ```powershell
 .venv\Scripts\python -m pytest -q                 # 239 tests, ~5 s, doivent rester verts
 .venv\Scripts\python -m pytest tests/test_career.py -q
-.venv\Scripts\python -m ruff check .              # lint (baseline : 23 erreurs préexistantes, n'en ajoute pas)
-.venv\Scripts\python -m ruff check <fichiers modifiés>   # vérifier au moins ce que tu touches
+.venv\Scripts\python -m ruff check .              # lint : base propre (0 erreur), doit le rester
 .venv\Scripts\python -m fsmods_gui                # lancer la GUI (nécessite config.yaml)
 .\packaging\build.ps1                             # build .exe Nuitka -> dist\fsmods-gui.exe
 ```

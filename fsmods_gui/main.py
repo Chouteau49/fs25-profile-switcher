@@ -7,7 +7,6 @@ import traceback
 from pathlib import Path
 
 from . import config as cfgmod
-from . import __version__
 
 
 def _qt_plugin_root_candidates() -> list[Path]:

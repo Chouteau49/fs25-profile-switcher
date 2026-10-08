@@ -19,7 +19,6 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QIcon,
-    QImage,
     QKeySequence,
     QPainter,
     QPen,
@@ -107,11 +106,11 @@ class CatalogTableModel(QAbstractTableModel):
             return self._entries[row]
         return None
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self._entries)
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
+        return 0 if parent is not None and parent.isValid() else len(self._entries)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self.HEADERS)
+    def columnCount(self, parent: QModelIndex | None = None) -> int:
+        return 0 if parent is not None and parent.isValid() else len(self.HEADERS)
 
     def headerData(
         self,
@@ -348,12 +347,14 @@ class LibraryFilterProxy(QSortFilterProxyModel):
             return False
         if self._category != "Toutes" and entry.category != self._category:
             return False
-        if self._brand != "Toutes":
-            if not entry.brand or entry.brand.lower() != self._brand.lower():
-                return False
-        if self._sub_type != "Tous":
-            if not entry.type or entry.type.lower() != self._sub_type.lower():
-                return False
+        if self._brand != "Toutes" and (
+            not entry.brand or entry.brand.lower() != self._brand.lower()
+        ):
+            return False
+        if self._sub_type != "Tous" and (
+            not entry.type or entry.type.lower() != self._sub_type.lower()
+        ):
+            return False
         
         # Profile filter
         if self._profile and self._profile_filter_mode != "all":

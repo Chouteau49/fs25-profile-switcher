@@ -12,7 +12,6 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from .config import GameProfile
 from .profiles.activator import (
-    ActivationReport,
     activate_profile,
     launch_game,
 )

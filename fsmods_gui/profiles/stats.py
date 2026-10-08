@@ -7,7 +7,6 @@ Reuses duplicate detection (#2) and the catalog's category/brand fields.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from .catalog import Catalog
 from .collection import Collection

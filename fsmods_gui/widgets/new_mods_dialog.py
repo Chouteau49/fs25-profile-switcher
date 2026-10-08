@@ -37,7 +37,11 @@ from ..profiles.inbox import (
 )
 from ..profiles.testrunner import (
     STATUS_KO as TEST_KO,
+)
+from ..profiles.testrunner import (
     STATUS_OK as TEST_OK,
+)
+from ..profiles.testrunner import (
     STATUS_WARN as TEST_WARN,
 )
 from ..state import AppState, ImportPlan

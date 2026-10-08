@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import re
 import tempfile
-import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+
 
 def inject_translation_to_zip(zip_path: Path, fr_text: str) -> bool:
     """Read a ZIP, update its modDesc.xml with <fr> tags, and write back.
@@ -20,19 +20,21 @@ def inject_translation_to_zip(zip_path: Path, fr_text: str) -> bool:
         tmp_zip = Path(tmpdir) / "output.zip"
         
         updated = False
-        with zipfile.ZipFile(zip_path, 'r') as zin:
-            with zipfile.ZipFile(tmp_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
-                for item in zin.infolist():
-                    content = zin.read(item.filename)
+        with (
+            zipfile.ZipFile(zip_path, 'r') as zin,
+            zipfile.ZipFile(tmp_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zout,
+        ):
+            for item in zin.infolist():
+                content = zin.read(item.filename)
                     
-                    if item.filename.lower() == "moddesc.xml":
-                        new_content = _update_moddesc_xml(content, fr_text)
-                        if new_content != content:
-                            updated = True
-                            zout.writestr(item.filename, new_content)
-                            continue
+                if item.filename.lower() == "moddesc.xml":
+                    new_content = _update_moddesc_xml(content, fr_text)
+                    if new_content != content:
+                        updated = True
+                        zout.writestr(item.filename, new_content)
+                        continue
                     
-                    zout.writestr(item, content)
+                zout.writestr(item, content)
         
         if updated:
             # Atomic replace (as much as possible)

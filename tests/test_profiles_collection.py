@@ -17,7 +17,6 @@ from fsmods_gui.profiles.profile import (
     ProfileError,
 )
 
-
 # ----------------------------------------------------------------- Collection
 
 

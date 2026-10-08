@@ -178,10 +178,10 @@ class ModDetailDialog(QDialog):
             translated = re.sub(rf"\b{en}\b", fr, translated, flags=re.IGNORECASE)
         
         # Now try to inject into the ZIP
-        from ..profiles.translator import inject_translation_to_zip
         from pathlib import Path
+
+        from ..profiles.translator import inject_translation_to_zip
         
-        zip_path = Path(self.entry.filename)
         # We need the full path. The CatalogEntry doesn't store the full dir, 
         # but the parent widget usually has access to the library path.
         # For now, let's assume we can resolve it via the Catalog if available.

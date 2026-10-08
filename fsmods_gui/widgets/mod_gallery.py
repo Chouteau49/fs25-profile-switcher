@@ -113,8 +113,8 @@ class ModListModel(QAbstractListModel):
             return self._items[row]
         return None
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self._items)
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
+        return 0 if parent is not None and parent.isValid() else len(self._items)
 
     def _small_icon(self, entry: CatalogEntry | None) -> QIcon | None:
         if entry is None or not entry.icon_cache_path:

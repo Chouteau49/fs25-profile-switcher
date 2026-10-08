@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from fsmods_gui.config import Config, GameProfile
-from fsmods_gui.state import AppState
 from fsmods_gui.profiles.profile import Profile
+from fsmods_gui.state import AppState
 
 MODDESC = """<?xml version="1.0" encoding="utf-8"?>
 <modDesc descVersion="91">

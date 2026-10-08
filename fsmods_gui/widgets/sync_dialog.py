@@ -6,7 +6,6 @@ can decide how to handle each *added* (new download in-game) and *removed*
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
