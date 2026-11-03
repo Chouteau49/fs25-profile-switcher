@@ -11,6 +11,9 @@ Replaces the old two-pane ``ProfileEditor`` and the modal
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -35,6 +38,7 @@ from PySide6.QtWidgets import (
 
 from ..profiles.catalog import Catalog, CatalogEntry
 from ..profiles.collection import Collection
+from ..profiles.official_maps import OFFICIAL_MAPS
 from ..profiles.profile import Profile
 from .library_table import LibraryTable
 from .mod_gallery import (
@@ -48,6 +52,16 @@ from .mod_gallery import (
 
 _PAGE_CONTENT = 0
 _PAGE_LIBRARY = 1
+
+
+_OFFICIAL = "official:"  # map combo data prefix for official (non-mod) maps
+
+
+def _map_key(profile: Profile) -> str | None:
+    """Map combo data of a profile: the map zip, or ``official:<mapId>``."""
+    if profile.map_mod:
+        return profile.map_mod
+    return _OFFICIAL + profile.official_map if profile.official_map else None
 
 
 class EditorPanel(QWidget):
@@ -65,6 +79,8 @@ class EditorPanel(QWidget):
         super().__init__(parent)
         self._target: Profile | Collection | None = None
         self._catalog: Catalog | None = None
+        # Thumbnail of an official map (set by the main window, which knows the paths).
+        self._official_thumbnail: Callable[[str], Path | None] = lambda _map_id: None
         self._collections: list[Collection] = []
 
         # ---- header: name + description (+ map for profiles)
@@ -170,9 +186,14 @@ class EditorPanel(QWidget):
         root.addLayout(toggle_row)
         root.addWidget(self.stack, 1)
 
+        self._rebuild_map_combo()  # official maps are listed even before the library scan
         self.set_target(None)
 
     # ------------------------------------------------------------------ data
+
+    def set_official_thumbnail_provider(self, provider: Callable[[str], Path | None]) -> None:
+        self._official_thumbnail = provider
+        self._update_map_icon()
 
     def set_catalog(self, catalog: Catalog | None) -> None:
         self._catalog = catalog
@@ -219,7 +240,7 @@ class EditorPanel(QWidget):
 
         if is_profile:
             block_map = self.map_combo.blockSignals(True)
-            self._select_map_in_combo(target.map_mod)
+            self._select_map_in_combo(_map_key(target))
             self.map_combo.blockSignals(block_map)
             self._rebuild_collections_list()
             self._update_map_icon()
@@ -283,6 +304,8 @@ class EditorPanel(QWidget):
         block = self.map_combo.blockSignals(True)
         self.map_combo.clear()
         self.map_combo.addItem("— Aucune —", userData=None)
+        for m in OFFICIAL_MAPS:
+            self.map_combo.addItem(f"🏛 {m.label}", userData=_OFFICIAL + m.map_id)
         if self._catalog is not None:
             for entry in sorted(
                 self._catalog.maps(), key=lambda e: e.display_title.lower()
@@ -291,7 +314,7 @@ class EditorPanel(QWidget):
                     f"{entry.display_title} ({entry.filename})", userData=entry.filename
                 )
         if isinstance(self._target, Profile):
-            self._select_map_in_combo(self._target.map_mod)
+            self._select_map_in_combo(_map_key(self._target))
         self.map_combo.blockSignals(block)
 
     def _select_map_in_combo(self, filename: str | None) -> None:
@@ -306,15 +329,29 @@ class EditorPanel(QWidget):
         if not isinstance(self._target, Profile):
             return
         new_map = self.map_combo.currentData()
-        if new_map == self._target.map_mod:
+        if new_map == _map_key(self._target):
             return
-        self._target.map_mod = new_map
+        if isinstance(new_map, str) and new_map.startswith(_OFFICIAL):
+            self._target.map_mod = None
+            self._target.official_map = new_map[len(_OFFICIAL):]
+        else:
+            self._target.map_mod = new_map
+            self._target.official_map = None
         self._reload_content()
         self._update_map_icon()
         self.changed.emit()
 
     def _update_map_icon(self) -> None:
-        if not isinstance(self._target, Profile) or not self._catalog:
+        if not isinstance(self._target, Profile):
+            self.map_icon.setPixmap(QPixmap())
+            return
+        if self._target.official_map and not self._target.map_mod:
+            thumb = self._official_thumbnail(self._target.official_map)
+            pix = QPixmap(str(thumb)) if thumb else QPixmap()
+            if not pix.isNull():
+                self.map_icon.setPixmap(pix)
+                return
+        if not self._catalog:
             self.map_icon.setPixmap(QPixmap())
             return
         entry = (

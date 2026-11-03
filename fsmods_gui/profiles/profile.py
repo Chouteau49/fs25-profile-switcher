@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from .catalog import Catalog
@@ -38,6 +38,8 @@ class Profile:
     game: str = "fs25"
     mods: list[str] = field(default_factory=list)
     map_mod: str | None = None  # filename of the .zip that provides the map
+    # Official (base game / DLC) map, as the savegame <mapId>; exclusive with map_mod.
+    official_map: str | None = None
     collections: list[str] = field(default_factory=list)  # slugs of inherited collections
     excluded_mods: list[str] = field(default_factory=list)  # inherited mods disabled for this profile
     description: str = ""
@@ -125,6 +127,7 @@ class Profile:
             "name": self.name,
             "game": self.game,
             "map_mod": self.map_mod,
+            "official_map": self.official_map,
             "mods": list(self.mods),
             "collections": list(self.collections),
             "excluded_mods": list(self.excluded_mods),
@@ -152,6 +155,9 @@ class Profile:
         map_mod = data.get("map_mod")
         if map_mod is not None and not isinstance(map_mod, str):
             raise ProfileError("'map_mod' must be a string filename or null.")
+        official = data.get("official_map")
+        if official is not None and not isinstance(official, str):
+            raise ProfileError("'official_map' must be a map id string or null.")
         # v2 fields: absent in v1 profiles → default to empty (migrated on save).
         collections = data.get("collections", [])
         if not isinstance(collections, list) or not all(
@@ -168,6 +174,7 @@ class Profile:
             game=data.get("game", "fs25"),
             mods=mods,
             map_mod=map_mod,
+            official_map=official or None,
             collections=collections,
             excluded_mods=excluded,
             description=data.get("description", ""),
@@ -184,6 +191,10 @@ class Profile:
             raise ProfileError(f"{path.name}: invalid JSON ({exc}).") from exc
         return cls.from_dict(data, path=path)
 
+    def mark_played(self) -> None:
+        """Remember that this profile was just activated / launched."""
+        self.last_played = datetime.now().isoformat(timespec="seconds")
+
     def save(self, path: Path | None = None) -> Path:
         target = path or self.path
         if target is None:
@@ -197,6 +208,12 @@ class Profile:
         )
         self.path = target
         return target
+
+
+def most_recently_played(profiles: list[Profile]) -> Profile | None:
+    """Profile with the latest ``last_played`` (ISO timestamps sort as text), if any."""
+    played = [p for p in profiles if p.last_played]
+    return max(played, key=lambda p: p.last_played or "") if played else None
 
 
 def list_profiles(profiles_dir: Path) -> list[Profile]:

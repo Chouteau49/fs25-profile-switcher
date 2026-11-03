@@ -110,6 +110,7 @@ class MainWindow(QMainWindow):
 
         # ---- right: unified editor (profile or collection) + activate
         self.editor = EditorPanel(self)
+        self.editor.set_official_thumbnail_provider(self._official_thumbnail)
         self.editor.changed.connect(self._on_editor_changed)
         self.editor.mod_delete_requested.connect(self._on_delete_mods)
         self.editor.add_to_profile_requested.connect(self._add_mods_to_profile)
@@ -368,6 +369,12 @@ class MainWindow(QMainWindow):
         except KeyError:
             return None
 
+    def _library_mods_dir(self) -> Path | None:
+        try:
+            return self.state.game.library_mods_dir
+        except KeyError:
+            return None
+
     def _sync_career(self, profile):
         """Load a profile's career, link its savegame if obvious, and sync it.
 
@@ -382,10 +389,14 @@ class MainWindow(QMainWindow):
         career_dir, user_dir = dirs
         career = Career.load(career_dir)
         if not career.settings.savegame:
-            career.settings.savegame = guess_savegame(profile.map_mod, user_dir)
+            career.settings.savegame = guess_savegame(
+                profile.map_mod, user_dir, profile.official_map
+            )
         if not career.settings.savegame:
             return career, None
-        return career, sync_career(career, user_dir, self._game_install_dir())
+        return career, sync_career(
+            career, user_dir, self._game_install_dir(), self._library_mods_dir()
+        )
 
     def _build_career_panel(self) -> QWidget:
         profile = self.state.current_profile
@@ -402,7 +413,12 @@ class MainWindow(QMainWindow):
             return QLabel("Jeu ou bibliothèque non configuré.")
         user_dir = self._career_dir_and_user_dir(profile)[1]
         panel = CareerPanel(
-            profile.name, career, user_dir, report, install_dir=self._game_install_dir()
+            profile.name,
+            career,
+            user_dir,
+            report,
+            install_dir=self._game_install_dir(),
+            library_mods_dir=self._library_mods_dir(),
         )
         panel.changed.connect(self._request_backup)
         if report is not None and report.ok:
@@ -680,19 +696,63 @@ class MainWindow(QMainWindow):
 
     # =========================================================== profiles
 
+    def _official_thumbnail(self, map_id: str) -> Path | None:
+        from .profiles.official_maps import official_map_thumbnail
+
+        try:
+            game = self.state.game
+        except KeyError:
+            return None
+        return official_map_thumbnail(map_id, game.install_dir, game.library_cache_dir)
+
+    def _profile_icon_path(self, prof) -> str | None:
+        """Icon of a profile's map: the map mod's icon, or the official map thumbnail."""
+        if prof.map_mod:
+            entry = self.state.catalog.entries.get(prof.map_mod) if self.state.catalog else None
+            return entry.icon_cache_path if entry and entry.icon_cache_path else None
+        if prof.official_map:
+            thumb = self._official_thumbnail(prof.official_map)
+            return str(thumb) if thumb else None
+        return None
+
+    def _detect_official_maps(self) -> None:
+        """Give a map-less profile its official map, from its career's savegame.
+
+        E.g. a "Kinlaig" profile (DLC map, no map mod) linked to a Kinlaig savegame
+        gets ``official_map`` so its thumbnail shows. Never overrides a chosen map.
+        """
+        from .career.stats import savegame_map_id
+        from .career.store import Career, CareerError
+        from .profiles.official_maps import official_map
+
+        for prof in self.state.profiles:
+            if prof.map_mod or prof.official_map or prof.path is None:
+                continue
+            dirs = self._career_dir_and_user_dir(prof)
+            if dirs is None:
+                return
+            career_dir, user_dir = dirs
+            try:
+                savegame = Career.load(career_dir).settings.savegame
+            except CareerError:
+                continue
+            found = official_map(savegame_map_id(user_dir / savegame)) if savegame else None
+            if found is not None:
+                prof.official_map = found.map_id
+                prof.save()
+
     def _refresh_profiles_ui(self) -> None:
         self.profile_list.blockSignals(True)
         self.profile_list.clear()
         for prof in self.state.profiles:
             item = QListWidgetItem(prof.name)
 
-            # Map icon decoration
-            if prof.map_mod and self.state.catalog:
-                entry = self.state.catalog.entries.get(prof.map_mod)
-                if entry and entry.icon_cache_path:
-                    pix = QPixmap(entry.icon_cache_path)
-                    if not pix.isNull():
-                        item.setIcon(QIcon(pix))
+            # Map icon decoration (map mod icon, or official map thumbnail)
+            icon_path = self._profile_icon_path(prof)
+            if icon_path:
+                pix = QPixmap(icon_path)
+                if not pix.isNull():
+                    item.setIcon(QIcon(pix))
 
             item.setData(Qt.ItemDataRole.UserRole, prof.slug)
             self.profile_list.addItem(item)
@@ -750,13 +810,12 @@ class MainWindow(QMainWindow):
 
     def _update_activate_btn_icon(self) -> None:
         prof = self.state.current_profile
-        if prof and prof.map_mod and self.state.catalog:
-            entry = self.state.catalog.entries.get(prof.map_mod)
-            if entry and entry.icon_cache_path:
-                pix = QPixmap(entry.icon_cache_path)
-                if not pix.isNull():
-                    self.activate_btn.setIcon(QIcon(pix))
-                    return
+        icon_path = self._profile_icon_path(prof) if prof else None
+        if icon_path:
+            pix = QPixmap(icon_path)
+            if not pix.isNull():
+                self.activate_btn.setIcon(QIcon(pix))
+                return
         
         # Fallback
         provider = QFileIconProvider()
@@ -820,6 +879,7 @@ class MainWindow(QMainWindow):
             return
         new.mods = list(src.mods)
         new.map_mod = src.map_mod
+        new.official_map = src.official_map
         new.collections = list(src.collections)
         new.excluded_mods = list(src.excluded_mods)
         new.description = src.description
@@ -867,7 +927,11 @@ class MainWindow(QMainWindow):
             return
         row = self.profile_list.currentRow()
         if row >= 0:
-            self.profile_list.item(row).setText(target.name)
+            item = self.profile_list.item(row)
+            item.setText(target.name)
+            icon_path = self._profile_icon_path(target)
+            pix = QPixmap(icon_path) if icon_path else QPixmap()
+            item.setIcon(QIcon(pix) if not pix.isNull() else QIcon())
         self._update_activate_btn_icon()
         self._request_backup()
         self._status(f"Profil enregistré : {path.name}")
@@ -1144,6 +1208,7 @@ class MainWindow(QMainWindow):
         self.editor.set_collections(self.state.collections)
         self._refresh_collections_ui()
         self.state.refresh_profiles()
+        self._detect_official_maps()
         self._refresh_profiles_ui()
         self._status(f"Bibliothèque : {len(catalog)} mods")
 
@@ -1402,6 +1467,7 @@ class MainWindow(QMainWindow):
         profile = self.state.current_profile
         if profile is None or self.state.catalog is None:
             return
+        self._activating_profile = profile
         self._progress = QProgressDialog(
             "Activation…", "Annuler", 0, 100, self
         )
@@ -1440,6 +1506,11 @@ class MainWindow(QMainWindow):
             self._progress = None
         if not isinstance(report, ActivationReport):
             return
+        played = getattr(self, "_activating_profile", None)
+        if played is not None and played.path is not None:
+            played.mark_played()  # the app reopens on this profile next time
+            played.save()
+            self._request_backup()
         summary = (
             f"{len(report.activated)} mod(s) activé(s) "
             f"({sum(1 for m in report.activated if m.method == 'hardlink')} hardlinks, "

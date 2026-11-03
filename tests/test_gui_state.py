@@ -187,3 +187,17 @@ def test_delete_mods_empty_is_noop(tmp_path: Path) -> None:
     assert result.removed_files == []
     assert result.affected_profiles == []
     assert result.affected_collections == []
+
+
+def test_first_load_selects_last_played_profile(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    profiles_dir = state.game.library_profiles_dir
+    Profile(name="Alpha", last_played="2026-10-01T10:00:00").save(profiles_dir / "alpha.json")
+    Profile(name="Kinlaig", last_played="2026-11-02T21:00:00").save(profiles_dir / "kinlaig.json")
+    Profile(name="Zulu").save(profiles_dir / "zulu.json")
+    state.refresh_profiles()
+    assert state.current_profile is not None and state.current_profile.name == "Kinlaig"
+    # a later refresh keeps the user's own selection
+    state.current_profile = state.profiles[0]
+    state.refresh_profiles()
+    assert state.current_profile.name == "Alpha"

@@ -7,7 +7,7 @@ from pathlib import Path
 from ..profiles.savegame_audit import list_savegames, parse_savegame
 from .formatting import format_value
 from .objectives import MODE_OFF, Objective
-from .stats import Q_NA, StatsSnapshot, apply_manual, extract_stats
+from .stats import Q_NA, StatsSnapshot, apply_manual, extract_stats, savegame_map_id
 from .store import Career
 
 
@@ -31,12 +31,18 @@ def _detected_lines(snapshot: StatsSnapshot) -> list[str]:
     return lines
 
 
-def sync_career(career: Career, user_dir: Path, install_dir: Path | None = None) -> SyncReport:
+def sync_career(
+    career: Career,
+    user_dir: Path,
+    install_dir: Path | None = None,
+    library_mods_dir: Path | None = None,
+) -> SyncReport:
     """Run the full sync. Never raises on missing data: the report explains why.
 
     The tracked farm (``settings.farm``) feeds the dashboard; every other farm an
-    objective is bound to gets its own snapshot. ``install_dir`` (game folder) lets
-    vehicle types / brands be read from the base-game vehicle XMLs.
+    objective is bound to gets its own snapshot. ``install_dir`` (game folder) and
+    ``library_mods_dir`` let vehicle types / brands and the map's parcel areas be read
+    even when the profile's mods are not currently in the game's mods folder.
     """
     if career.settings.mode == MODE_OFF:
         return SyncReport(message="Carrière désactivée pour ce profil.")
@@ -48,7 +54,11 @@ def sync_career(career: Career, user_dir: Path, install_dir: Path | None = None)
 
     def read(farm: str) -> StatsSnapshot:
         return extract_stats(
-            savegame, farm or None, install_dir=install_dir, mods_dir=user_dir / "mods"
+            savegame,
+            farm or None,
+            install_dir=install_dir,
+            mod_dirs=[d for d in (user_dir / "mods", library_mods_dir) if d is not None],
+            parcel_areas=career.settings.parcel_areas,
         )
 
     snapshot = read(career.settings.farm)
@@ -76,6 +86,13 @@ def sync_career(career: Career, user_dir: Path, install_dir: Path | None = None)
         message += f" ⚠ La ferme {career.settings.farm} n'existe plus : ferme {tracked} utilisée."
     if unavailable:
         message += f" {unavailable} statistique(s) non disponible(s)."
+    missing = [p for p, ha in snapshot.parcels.items() if ha is None
+               and p not in career.settings.parcel_areas.get(snapshot.map_id, {})]
+    if missing:
+        message += (
+            f" 🌾 {len(missing)} parcelle(s) sans surface : renseigne-les via "
+            "« Surfaces des parcelles… »."
+        )
     return SyncReport(
         ok=True,
         message=message,
@@ -86,10 +103,22 @@ def sync_career(career: Career, user_dir: Path, install_dir: Path | None = None)
     )
 
 
-def guess_savegame(map_mod_filename: str | None, user_dir: Path) -> str:
-    """Pick the savegame folder matching the profile's map, only if unambiguous."""
+def guess_savegame(
+    map_mod_filename: str | None, user_dir: Path, official_map: str | None = None
+) -> str:
+    """Pick the savegame folder matching the profile's map, only if unambiguous.
+
+    ``official_map`` (savegame ``<mapId>`` of a base-game / DLC map) is used when the
+    profile has no map mod.
+    """
     if not map_mod_filename:
-        return ""
+        if not official_map:
+            return ""
+        hits = [
+            sg.name for sg in list_savegames(user_dir)
+            if savegame_map_id(sg).lower() == official_map.lower()
+        ]
+        return hits[0] if len(hits) == 1 else ""
     map_id = Path(map_mod_filename).stem.lower()
     matches = [
         sg.name

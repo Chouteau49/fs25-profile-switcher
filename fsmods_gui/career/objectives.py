@@ -490,6 +490,34 @@ def claim_reward(obj: Objective) -> bool:
     return True
 
 
+def can_mark_paid(obj: Objective) -> bool:
+    """A completed objective with a money reward can be ticked "argent versé"."""
+    return obj.completed and obj.reward.money > 0
+
+
+def set_reward_paid(obj: Objective, paid: bool, mode: str) -> bool:
+    """Tick / untick "I added the money to my farm" (the "💰 Versé" checkbox).
+
+    Works in every mode, also for a reward marked "non due" (objective already met
+    when it was added, or "objectives only" mode): the player decides. Unticking
+    puts the reward back to "à attribuer" when rewards are on, else "non due".
+    Returns False when nothing changed.
+    """
+    if not can_mark_paid(obj):
+        return False
+    if paid:
+        if obj.reward_state == RW_CLAIMED:
+            return False
+        obj.reward_state = RW_CLAIMED
+        obj.reward_claimed_at = now_iso()
+        return True
+    if obj.reward_state != RW_CLAIMED:
+        return False
+    obj.reward_state = RW_PENDING if rewards_enabled(mode) else RW_WAIVED
+    obj.reward_claimed_at = None
+    return True
+
+
 # --------------------------------------------------------------- xp / summary
 
 
@@ -517,6 +545,7 @@ class CareerSummary:
     badges: list[str] = field(default_factory=list)
     money_pending: int = 0
     money_claimed: int = 0
+    money_earned: int = 0  # money rewards of every completed objective, paid or not
 
 
 def summarize(objectives: list[Objective]) -> CareerSummary:
@@ -528,6 +557,7 @@ def summarize(objectives: list[Objective]) -> CareerSummary:
         if o.status == ST_COMPLETED:
             s.completed += 1
             s.xp += o.reward.xp
+            s.money_earned += o.reward.money
             if o.reward.badge:
                 s.badges.append(o.reward.badge)
             if o.reward_state == RW_PENDING:

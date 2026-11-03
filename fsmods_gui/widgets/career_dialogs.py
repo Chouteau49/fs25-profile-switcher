@@ -5,6 +5,7 @@ import uuid
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -263,6 +266,66 @@ class ObjectiveDialog(QDialog):
             template="custom",
             created_at=stamp,
         )
+
+
+class ParcelAreasDialog(QDialog):
+    """Area of every owned parcel: read from the map, or typed in when it can't be (DLC).
+
+    ``rows`` = ``(farm label, parcel id, area from the map or None)``.
+    """
+
+    def __init__(
+        self,
+        rows: list[tuple[str, str, float | None]],
+        typed: dict[str, float],
+        map_note: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Surfaces des parcelles")
+        self._spins: dict[str, QDoubleSpinBox] = {}
+        intro = QLabel(map_note + (
+            "\n\nTape la surface affichée en jeu (carte → parcelle). "
+            "Laisse 0 pour une parcelle inconnue : la surface totale reste alors "
+            "« non disponible » plutôt que fausse."
+            if any(area is None for _f, _p, area in rows) else ""
+        ))
+        intro.setWordWrap(True)
+        table = QTableWidget(len(rows), 4, self)
+        table.setHorizontalHeaderLabels(["Parcelle", "Ferme", "Surface (ha)", "Source"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        for r, (farm, pid, area) in enumerate(rows):
+            table.setItem(r, 0, QTableWidgetItem(f"n° {pid}"))
+            table.setItem(r, 1, QTableWidgetItem(farm))
+            if area is not None:
+                table.setItem(r, 2, QTableWidgetItem(f"{area:.2f}".replace(".", ",")))
+                table.setItem(r, 3, QTableWidgetItem("🟠 carte du jeu"))
+                continue
+            spin = QDoubleSpinBox(table)
+            spin.setRange(0.0, 100_000.0)
+            spin.setDecimals(2)
+            spin.setSuffix(" ha")
+            spin.setValue(typed.get(pid, 0.0))
+            self._spins.setdefault(pid, spin)
+            table.setCellWidget(r, 2, spin)
+            table.setItem(r, 3, QTableWidgetItem("🔵 saisie"))
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        layout.addWidget(intro)
+        layout.addWidget(table, 1)
+        layout.addWidget(buttons)
+        self.resize(560, 480)
+
+    def typed_areas(self) -> dict[str, float]:
+        """Typed areas (> 0 only: 0 means "unknown")."""
+        return {pid: spin.value() for pid, spin in self._spins.items() if spin.value() > 0}
 
 
 class ManualStatDialog(QDialog):

@@ -129,3 +129,28 @@ def test_profile_path_for_uses_slug(tmp_path: Path) -> None:
     p = profile_path_for(tmp_path, "Grandes Plaines!")
     assert p.parent == tmp_path
     assert p.name == "grandes-plaines.json"
+
+
+def test_official_map_roundtrip_and_validation(tmp_path: Path) -> None:
+    from fsmods_gui.profiles.profile import ProfileError
+
+    prof = Profile(name="Kinlaig", official_map="pdlc_highlandsFishingPack.HighlandsFishingMap")
+    path = prof.save(tmp_path / "kinlaig.json")
+    again = Profile.load(path)
+    assert again.official_map == "pdlc_highlandsFishingPack.HighlandsFishingMap"
+    assert again.map_mod is None
+    assert Profile.from_dict({"name": "Old"}).official_map is None  # older profiles
+    with pytest.raises(ProfileError):
+        Profile.from_dict({"name": "Bad", "official_map": 3})
+
+
+def test_most_recently_played() -> None:
+    from fsmods_gui.profiles.profile import most_recently_played
+
+    a = Profile(name="A", last_played="2026-10-01T10:00:00")
+    b = Profile(name="B", last_played="2026-11-02T20:30:00")
+    c = Profile(name="C")
+    assert most_recently_played([a, b, c]) is b
+    assert most_recently_played([c]) is None
+    c.mark_played()
+    assert most_recently_played([a, b, c]) is c

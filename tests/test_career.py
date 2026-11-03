@@ -614,7 +614,7 @@ def test_vehicle_type_and_brand_read_from_vehicle_xml(tmp_path: Path) -> None:
       <vehicle filename="data/vehicles/fendt/vario700/vario700.xml" farmId="1" price="10"/>
       <vehicle filename="$moddir$FS25_Cool/cool.xml" farmId="1" price="5"/>
     </vehicles>""")
-    s = extract_stats(sg, install_dir=install, mods_dir=mods)
+    s = extract_stats(sg, install_dir=install, mod_dirs=[mods])
     assert s.value("vehicles.type.tractor") == 1  # not guessable from the filename alone
     assert s.value("vehicles.type.sprayer") == 1
     assert s.value("vehicles.brand.fendt") == 1
@@ -695,3 +695,122 @@ def test_sync_snapshots_each_farm_objectives_target(tmp_path: Path) -> None:
     career.settings.farm = "2"
     sync_career(career, user)
     assert career.snapshot.farm_id == "2"
+
+
+# ------------------------------------------------------- "💰 Versé" checkbox
+
+
+def test_reward_can_be_ticked_paid_in_every_mode() -> None:
+    from fsmods_gui.career.objectives import can_mark_paid, set_reward_paid
+
+    s = snap(money=10)
+    o = obj("a", leaf("money", 5), reward=Reward(money=50_000))
+    evaluate_objectives([o], s, MODE_OBJECTIVES)  # already met: completed, "non due"
+    assert o.reward_state == RW_WAIVED and can_mark_paid(o)
+    assert set_reward_paid(o, True, MODE_OBJECTIVES)
+    assert o.reward_state == RW_CLAIMED and o.reward_claimed_at
+    assert not set_reward_paid(o, True, MODE_OBJECTIVES)  # idempotent
+    assert set_reward_paid(o, False, MODE_OBJECTIVES)
+    assert o.reward_state == RW_WAIVED and o.reward_claimed_at is None
+    set_reward_paid(o, True, MODE_MANUAL_REWARDS)
+    set_reward_paid(o, False, MODE_MANUAL_REWARDS)
+    assert o.reward_state == RW_PENDING  # back to "à attribuer" when rewards are on
+
+
+def test_reward_checkbox_needs_completion_and_money() -> None:
+    from fsmods_gui.career.objectives import can_mark_paid, set_reward_paid
+
+    todo = obj("a", leaf("money", 100), reward=Reward(money=10))
+    evaluate_objectives([todo], snap(money=1), MODE_OBJECTIVES)
+    assert not can_mark_paid(todo) and not set_reward_paid(todo, True, MODE_OBJECTIVES)
+    xp_only = obj("b", leaf("money", 1), reward=Reward(xp=10))
+    evaluate_objectives([xp_only], snap(money=5), MODE_OBJECTIVES)
+    assert not can_mark_paid(xp_only)
+
+
+def test_summary_money_earned_and_paid() -> None:
+    from fsmods_gui.career.objectives import set_reward_paid
+
+    a = obj("a", leaf("money", 1), reward=Reward(money=100))
+    b = obj("b", leaf("money", 1), reward=Reward(money=40))
+    evaluate_objectives([a, b], snap(money=5), MODE_OBJECTIVES)
+    set_reward_paid(a, True, MODE_OBJECTIVES)
+    s = summarize([a, b])
+    assert s.money_earned == 140 and s.money_claimed == 100
+
+
+# --------------------------------------------------------- parcel areas
+
+
+def _land_save(tmp_path: Path, map_id: str) -> Path:
+    sg = make_save(tmp_path)
+    (sg / "farmlands.xml").rename(sg / "farmland.xml")
+    _write(sg, "careerSavegame.xml", CAREER_XML.replace(
+        "<mapId>FS25_The_Combes.Map</mapId>", f"<mapId>{map_id}</mapId>"))
+    return sg
+
+
+def test_land_area_from_map_layer(tmp_path: Path) -> None:
+    from tests.test_farmland_areas import layer, make_map_mod
+
+    make_map_mod(
+        tmp_path / "mods",
+        'densityMapFilename="maps/data/infoLayer_farmlands.png"',
+        {"maps/data/infoLayer_farmlands.grle": layer({1: 2500, 2: 5000})},
+    )
+    sg = _land_save(tmp_path / "docs", "FS25_Test.TestMap")
+    s = extract_stats(sg, mod_dirs=[tmp_path / "mods"])
+    assert s.map_id == "FS25_Test.TestMap"
+    assert s.parcels == {"1": pytest.approx(1.0), "2": pytest.approx(2.0)}
+    assert s.value("land.area") == pytest.approx(3.0)
+    assert s.get("land.area").quality == Q_CALC
+
+
+def test_land_area_typed_per_parcel_for_dlc_maps(tmp_path: Path) -> None:
+    dlc = "pdlc_highlandsFishingPack.HighlandsFishingMap"
+    sg = _land_save(tmp_path, dlc)
+    s = extract_stats(sg)
+    assert s.parcels == {"1": None, "2": None}
+    assert s.value("land.area") is None
+    assert "n° 1, n° 2" in s.get("land.area").note and "DLC" in s.get("land.area").note
+    partial = extract_stats(sg, parcel_areas={dlc: {"1": 4.0}})
+    assert partial.value("land.area") is None  # never a silently partial total
+    full = extract_stats(sg, parcel_areas={dlc: {"1": 4.0, "2": 1.5}, "other": {"1": 99}})
+    assert full.value("land.area") == 5.5
+    assert full.get("land.area").quality == Q_MANUAL
+    again = StatsSnapshot.from_dict(json.loads(json.dumps(full.to_dict())))
+    assert again.map_id == dlc and again.parcels == {"1": None, "2": None}
+
+
+def test_owned_parcels_and_parcel_areas_roundtrip(tmp_path: Path) -> None:
+    from fsmods_gui.career.stats import owned_parcels, savegame_map_id
+    from fsmods_gui.career.store import CareerSettings
+
+    sg = _land_save(tmp_path, "MapUS")
+    assert owned_parcels(sg) == {"1": ["1", "2"], "2": ["4"]}
+    assert savegame_map_id(sg) == "MapUS"
+    s = CareerSettings(parcel_areas={"MapX": {"3": 2.5}})
+    assert CareerSettings.from_dict(s.to_dict()).parcel_areas == {"MapX": {"3": 2.5}}
+
+
+def test_sync_reports_parcels_without_area(tmp_path: Path) -> None:
+    user = tmp_path / "user"
+    _land_save(user, "pdlc_highlandsFishingPack.HighlandsFishingMap")
+    career = Career(directory=tmp_path / "career")
+    career.settings.savegame = "savegame1"
+    report = sync_career(career, user)
+    assert "2 parcelle(s) sans surface" in report.message
+    career.settings.parcel_areas = {
+        "pdlc_highlandsFishingPack.HighlandsFishingMap": {"1": 1.0, "2": 2.0}
+    }
+    report = sync_career(career, user)
+    assert "sans surface" not in report.message
+    assert career.snapshot.value("land.area") == 3.0
+
+
+def test_guess_savegame_for_official_map(tmp_path: Path) -> None:
+    _land_save(tmp_path, "pdlc_highlandsFishingPack.HighlandsFishingMap")
+    found = guess_savegame(None, tmp_path, "pdlc_highlandsFishingPack.HighlandsFishingMap")
+    assert found == "savegame1"
+    assert guess_savegame(None, tmp_path, "MapUS") == ""
+    assert guess_savegame(None, tmp_path) == ""

@@ -17,7 +17,12 @@ from .profiles.collection import (
     list_collections,
 )
 from .profiles.inbox import PendingMod, import_pending, scan_sources
-from .profiles.profile import Profile, list_profiles, profile_path_for
+from .profiles.profile import (
+    Profile,
+    list_profiles,
+    most_recently_played,
+    profile_path_for,
+)
 
 
 @dataclass
@@ -292,7 +297,8 @@ class AppState:
                 self.profiles[0] if self.profiles else None,
             )
         elif self.profiles:
-            self.current_profile = self.profiles[0]
+            # First load: reopen on the profile played last.
+            self.current_profile = most_recently_played(self.profiles) or self.profiles[0]
         return self.profiles
 
     def new_profile(self, name: str) -> Profile:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -23,22 +23,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..career.farmland_areas import is_dlc_map, map_farmland_areas
 from ..career.formatting import format_value
 from ..career.history import CHART_SERIES, series
 from ..career.objectives import (
     DIFFICULTY_LABELS_FR,
     MODE_LABELS_FR,
     MODE_OFF,
+    RW_CLAIMED,
     RW_PENDING,
     ST_COMPLETED,
     ST_LOCKED,
     ST_NOT_STARTED,
     STATUS_LABELS_FR,
     Objective,
+    can_mark_paid,
     claim_reward,
     complete_manually,
     level_for_xp,
     rewards_enabled,
+    set_reward_paid,
     summarize,
 )
 from ..career.stats import (
@@ -48,12 +52,19 @@ from ..career.stats import (
     FarmInfo,
     apply_manual,
     list_farms,
+    owned_parcels,
+    savegame_map_id,
 )
 from ..career.store import Career
 from ..career.sync import SyncReport, sync_career
 from ..career.templates import TEMPLATES, build_template
 from ..profiles.savegame_audit import list_savegames, parse_savegame
-from .career_dialogs import ManualStatDialog, ObjectiveDialog, confirm_reward
+from .career_dialogs import (
+    ManualStatDialog,
+    ObjectiveDialog,
+    ParcelAreasDialog,
+    confirm_reward,
+)
 from .history_chart import HistoryChart
 
 # Statistics shown as dashboard cards: (key, icon).
@@ -68,6 +79,7 @@ _CARDS = (
     ("productions.count", "🏭"),
     ("playTime", "⏱️"),
 )
+_COL_PAID = 8
 _QUALITY_ICON = {"auto": "🟢", "calc": "🟠", "manual": "🔵", "na": "🔴"}
 
 
@@ -83,9 +95,11 @@ class CareerPanel(QWidget):
         report: SyncReport | None = None,
         parent: QWidget | None = None,
         install_dir: Path | None = None,
+        library_mods_dir: Path | None = None,
     ) -> None:
         super().__init__(parent)
         self._install_dir = install_dir
+        self._library_mods_dir = library_mods_dir
         self._career = career
         self._user_dir = user_dir
         self._profile_name = profile_name
@@ -124,6 +138,12 @@ class CareerPanel(QWidget):
         custom_btn.clicked.connect(self._on_add_custom)
         manual_btn = QPushButton("✏ Statistique manuelle…", self)
         manual_btn.clicked.connect(self._on_manual_stat)
+        parcels_btn = QPushButton("🌾 Surfaces des parcelles…", self)
+        parcels_btn.setToolTip(
+            "Surface de chaque parcelle possédée : lue sur la carte du jeu, "
+            "ou à saisir pour une carte DLC (chiffrée)."
+        )
+        parcels_btn.clicked.connect(self._on_parcel_areas)
 
         head1 = QHBoxLayout()
         head1.addWidget(QLabel("Sauvegarde :", self))
@@ -137,6 +157,7 @@ class CareerPanel(QWidget):
         head2.addWidget(template_btn)
         head2.addWidget(custom_btn)
         head2.addWidget(manual_btn)
+        head2.addWidget(parcels_btn)
         head2.addStretch(1)
 
         title = QLabel(f"<h2>🎯 Carrière — {profile_name}</h2>", self)
@@ -191,11 +212,16 @@ class CareerPanel(QWidget):
         filters.addStretch(1)
 
         self.table = QTableWidget(self)
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels(
             ["Statut", "Objectif", "Ferme", "Catégorie", "Difficulté", "Progression",
-             "Actuel / cible", "Récompense"]
+             "Actuel / cible", "Récompense", "💰 Versé"]
         )
+        self.table.horizontalHeaderItem(_COL_PAID).setToolTip(
+            "Coche quand tu as ajouté l'argent de la récompense sur ta ferme "
+            "(PowerTools, F12). Disponible une fois l'objectif terminé."
+        )
+        self.table.itemChanged.connect(self._on_table_item_changed)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -334,8 +360,15 @@ class CareerPanel(QWidget):
         )
         level, into, need = level_for_xp(s.xp)
         badges = ", ".join(f"🏅 {b}" for b in dict.fromkeys(s.badges)) or "aucun"
+        money = ""
+        if s.money_earned:
+            money = (
+                f" · 💰 Versé : {format_value(s.money_claimed, '€')} sur "
+                f"{format_value(s.money_earned, '€')} gagnés"
+            )
         self.level_label.setText(
             f"⭐ Niveau {level} — {s.xp} XP ({into}/{need} avant le suivant) · Badges : {badges}"
+            + money
         )
 
     def _fill_rewards(self) -> None:
@@ -388,6 +421,7 @@ class CareerPanel(QWidget):
 
     def _fill_table(self) -> None:
         self._rows = self._visible_objectives()
+        self.table.blockSignals(True)  # itemChanged must only fire on user clicks
         self.table.clearContents()
         self.table.setRowCount(len(self._rows))
         for r, o in enumerate(self._rows):
@@ -405,7 +439,7 @@ class CareerPanel(QWidget):
                 reward.append(f"⭐ {o.reward.xp} XP")
             if o.reward.badge:
                 reward.append(f"🏅 {o.reward.badge}")
-            state = {"pending": " (à attribuer)", "claimed": " ✅", "waived": " (non due)"}.get(
+            state = {RW_PENDING: " (à attribuer)", RW_CLAIMED: " ✅"}.get(
                 o.reward_state, ""
             )
             values = [
@@ -429,9 +463,39 @@ class CareerPanel(QWidget):
             bar.setValue(round(o.progress * 1000))
             bar.setFormat(f"{o.progress * 100:.1f} %".replace(".", ","))
             self.table.setCellWidget(r, 5, bar)
+            self.table.setItem(r, _COL_PAID, self._paid_item(o))
+        self.table.blockSignals(False)
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._update_actions()
+
+    @staticmethod
+    def _paid_item(o: Objective) -> QTableWidgetItem:
+        """Checkbox "argent versé" — only on objectives with a money reward."""
+        item = QTableWidgetItem("")
+        if not o.reward.money:
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            return item
+        flags = Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsUserCheckable
+        if can_mark_paid(o):
+            flags |= Qt.ItemFlag.ItemIsEnabled
+            item.setToolTip("Coche quand l'argent a été ajouté sur ta ferme.")
+        else:
+            item.setToolTip("Disponible une fois l'objectif terminé.")
+        item.setFlags(flags)
+        paid = o.reward_state == RW_CLAIMED
+        item.setCheckState(Qt.CheckState.Checked if paid else Qt.CheckState.Unchecked)
+        return item
+
+    def _on_table_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() != _COL_PAID or item.row() >= len(self._rows):
+            return
+        obj = self._rows[item.row()]
+        paid = item.checkState() == Qt.CheckState.Checked
+        if set_reward_paid(obj, paid, self._career.settings.mode):
+            self._reevaluate()  # may unlock the next step in "required rewards" mode
+            # Deferred: rebuilding the table inside its own itemChanged signal is unsafe.
+            QTimer.singleShot(0, self._persist_and_refresh)
 
     def _selected(self) -> Objective | None:
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
@@ -478,7 +542,9 @@ class CareerPanel(QWidget):
         self.sync_label.setText("<br>".join(lines))
 
     def _on_sync_clicked(self) -> None:
-        report = sync_career(self._career, self._user_dir, self._install_dir)
+        report = sync_career(
+            self._career, self._user_dir, self._install_dir, self._library_mods_dir
+        )
         self._reload_farms()
         self._show_report(report)
         self._refresh()
@@ -549,6 +615,46 @@ class CareerPanel(QWidget):
         self._career.add_objectives([dlg.build()])
         self._reevaluate()
         self._persist_and_refresh()
+
+    def _on_parcel_areas(self) -> None:
+        savegame_name = self._career.settings.savegame
+        if not savegame_name:
+            QMessageBox.information(self, "Parcelles", "Associe d'abord une sauvegarde.")
+            return
+        savegame = self._user_dir / savegame_name
+        map_id = savegame_map_id(savegame)
+        owned = owned_parcels(savegame)
+        if not owned:
+            QMessageBox.information(self, "Parcelles", "Aucune parcelle possédée dans cette sauvegarde.")
+            return
+        mod_dirs = [d for d in (self._user_dir / "mods", self._library_mods_dir) if d is not None]
+        areas = map_farmland_areas(map_id, self._install_dir, mod_dirs)
+        names = {f.id: f.label for f in self._farms}
+        rows = [
+            (names.get(farm, f"Ferme {farm}"), pid, areas.areas.get(pid) if areas else None)
+            for farm in sorted(owned, key=lambda f: (f != self._career.snapshot.farm_id, f))
+            for pid in owned[farm]
+        ]
+        if areas is not None:
+            note = f"Surfaces lues sur la carte ({areas.source})."
+        elif is_dlc_map(map_id):
+            note = "Carte DLC chiffrée : le jeu ne permet pas de lire ses surfaces."
+        else:
+            note = "Carte des parcelles introuvable (mod de la carte absent ?)."
+        typed = dict(self._career.settings.parcel_areas.get(map_id, {}))
+        dlg = ParcelAreasDialog(rows, typed, note, self)
+        if dlg.exec() != dlg.DialogCode.Accepted or areas is not None and not dlg.typed_areas():
+            return
+        # Keep values typed for parcels not listed now (sold, other farm…).
+        listed = {pid for _farm, pid, area in rows if area is None}
+        merged = {pid: ha for pid, ha in typed.items() if pid not in listed}
+        merged.update(dlg.typed_areas())
+        if merged:
+            self._career.settings.parcel_areas[map_id] = merged
+        else:
+            self._career.settings.parcel_areas.pop(map_id, None)
+        self._career.save()
+        self._on_sync_clicked()
 
     def _on_manual_stat(self) -> None:
         dlg = ManualStatDialog(

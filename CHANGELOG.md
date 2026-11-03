@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0] - 2026-11-03
+
+### Added
+
+- **💰 Case « Versé »** dans le tableau des objectifs : sur chaque objectif terminé avec une récompense en argent, coche quand tu as ajouté l'argent sur ta ferme (PowerTools). Fonctionne dans tous les modes, y compris pour une récompense « non due » ; décocher remet la récompense « à attribuer » (ou non due). Le niveau affiche « 💰 Versé : X € sur Y € gagnés ».
+- **🌾 Surface possédée** calculée automatiquement : la surface de chaque parcelle est lue sur la carte du jeu (calque `infoLayer_farmlands.grle` décodé, ids déclarés par `farmlands.xml`) pour les cartes de base et les cartes mods (dossier du jeu ou bibliothèque). Vérifié sur Le Mechet (La bergerie : 12,52 ha), Montana 4X, Les Combes, Riverbend Springs, Zielonka, Hutan Pantai.
+- **Surfaces par parcelle** pour les cartes DLC chiffrées (Kinlaig) : bouton « 🌾 Surfaces des parcelles… » qui liste les parcelles possédées ; la surface saisie une fois est réutilisée, une parcelle achetée plus tard est signalée « sans surface » à la synchronisation. Une parcelle inconnue laisse le total « non disponible » plutôt qu'une somme partielle fausse.
+- **Vignettes des cartes officielles** : un profil peut choisir une carte officielle (🏛 Riverbend Springs, Zielonka, Hutan Pantai, Kinlaig) dans le sélecteur de carte ; sa vignette s'affiche dans la liste des profils, l'éditeur et le bouton d'activation (aperçu `preview.dds` du jeu, ou image Steam en cache pour un DLC). Un profil sans carte reçoit automatiquement la carte officielle de la sauvegarde liée à sa carrière.
+
+### Changed
+
+- **Au démarrage, l'application s'ouvre sur le dernier profil joué** (champ `last_played` des profils, enregistré à chaque activation).
+- La sauvegarde liée à une carrière est aussi devinée pour une carte officielle.
+
 ## [0.7.1] - 2026-10-08
 
 ### Added

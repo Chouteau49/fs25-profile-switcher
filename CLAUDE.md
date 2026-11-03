@@ -10,7 +10,7 @@ changelog, messages de commit en FR / EN).
 Environnement : Windows, venv `.venv` (dev) ; `.venv313` sert au build Nuitka.
 
 ```powershell
-.venv\Scripts\python -m pytest -q                 # 239 tests, ~5 s, doivent rester verts
+.venv\Scripts\python -m pytest -q                 # 261 tests, ~5 s, doivent rester verts
 .venv\Scripts\python -m pytest tests/test_career.py -q
 .venv\Scripts\python -m ruff check .              # lint : base propre (0 erreur), doit le rester
 .venv\Scripts\python -m fsmods_gui                # lancer la GUI (nécessite config.yaml)
@@ -35,8 +35,9 @@ fsmods_gui/
                    index.json par (size, mtime_ns)), profile, collection (héritage dynamique),
                    activator (hardlinks NTFS, repli copie), sync_back, inbox, duplicates,
                    dependencies, savegame_audit, log_analyzer, testrunner, config_backup,
-                   autodrive, stats, translator
+                   autodrive, stats, translator, official_maps (cartes de base/DLC + vignettes)
   career/          système d'objectifs (pur, sans Qt) : stats (extraction savegame XML),
+                   farmland_areas (surface des parcelles via le GRLE de la carte),
                    objectives (moteur de règles), templates, store, sync, history, formatting
   workers.py       QObject + QThread (ScanWorker, activation, watcher process FS25, backup...)
   main.py          bootstrap Qt (plugins Qt, config manquante) ; main_window.py (~1600 lignes)

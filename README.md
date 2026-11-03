@@ -28,7 +28,7 @@ sinon elle retombe automatiquement sur une copie classique.
 - **Bibliothèque centrale** : un seul exemplaire de chaque `.zip`, partagé entre tous les profils.
 - **Profils par sauvegarde** : un fichier JSON par partie, lisible à la main, versionnable.
 - **🎯 Carrière** : objectifs par profil (argent, terres, véhicules, animaux, contrats, temps de jeu…) suivis automatiquement depuis la sauvegarde, récompenses optionnelles, modèles prêts à l'emploi — voir [docs/gui.md](docs/gui.md#carrière--objectifs).
-- **Choix de carte** : la carte associée au profil est mise en avant (icône + nom).
+- **Choix de carte** : la carte associée au profil est mise en avant (icône + nom), y compris les cartes officielles et DLC (vignette du jeu / de Steam). L'application rouvre le dernier profil joué.
 - **Activation instantanée** : hardlinks NTFS, fallback automatique sur copie.
 - **Lancement Steam** : bouton « Activer & lancer » qui démarre le jeu via `steam://rungameid/<id>`.
 - **Sync au retour de partie** : à la fermeture de FS25, l'app détecte les mods ajoutés, supprimés, et les mods mis à jour en jeu (ModHub), puis propose l'action adaptée.

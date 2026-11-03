@@ -19,9 +19,12 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+from .farmland_areas import is_dlc_map, map_farmland_areas
 
 Q_AUTO = "auto"
 Q_CALC = "calc"
@@ -74,6 +77,9 @@ class StatsSnapshot:
     taken_at: str = ""
     farm_id: str = ""  # farm these figures belong to ("" = unknown / legacy snapshot)
     farm_name: str = ""
+    map_id: str = ""  # careerSavegame <mapId>, e.g. "FS25_The_Mechet.FS25_Le_Mechet"
+    # Farmlands owned by the farm -> area read from the map (None: map unreadable).
+    parcels: dict[str, float | None] = field(default_factory=dict)
     stats: dict[str, Stat] = field(default_factory=dict)
     # Dynamic families whose source file was read completely: a member that is
     # absent really is zero (e.g. no wheat field), not "unknown".
@@ -101,6 +107,8 @@ class StatsSnapshot:
             "taken_at": self.taken_at,
             "farm_id": self.farm_id,
             "farm_name": self.farm_name,
+            "map_id": self.map_id,
+            "parcels": dict(self.parcels),
             "complete_prefixes": sorted(self.complete_prefixes),
             "stats": {
                 k: {
@@ -123,6 +131,13 @@ class StatsSnapshot:
             farm_id=str(data.get("farm_id", "")),
             farm_name=str(data.get("farm_name", "")),
         )
+        snap.map_id = str(data.get("map_id", ""))
+        parcels = data.get("parcels", {})
+        if isinstance(parcels, dict):
+            snap.parcels = {
+                str(k): float(v) if isinstance(v, int | float) else None
+                for k, v in parcels.items()
+            }
         prefixes = data.get("complete_prefixes", [])
         if isinstance(prefixes, list):
             snap.complete_prefixes = {p for p in prefixes if isinstance(p, str)}
@@ -278,6 +293,8 @@ class _Collector:
     complete_prefixes: set[str] = field(default_factory=set)
     farm_id: str = ""
     farm_name: str = ""
+    map_id: str = ""
+    parcels: dict[str, float | None] = field(default_factory=dict)
 
     def put(
         self,
@@ -435,9 +452,9 @@ class VehicleResolver:
 
     _HEAD = 24000
 
-    def __init__(self, install_dir: Path | None = None, mods_dir: Path | None = None) -> None:
+    def __init__(self, install_dir: Path | None = None, mod_dirs: Sequence[Path] = ()) -> None:
         self._install = install_dir
-        self._mods = mods_dir
+        self._mod_dirs = [d for d in mod_dirs if d is not None]
         self._cache: dict[str, tuple[str, str, str] | None] = {}
 
     def _read(self, filename: str) -> str | None:
@@ -449,16 +466,17 @@ class VehicleResolver:
                 rel = name.split("/", 1)[1]
                 path = self._install / "data" / rel
                 return path.read_text(encoding="utf-8", errors="replace")[: self._HEAD]
-            if name.startswith("$moddir$") and self._mods is not None:
+            if name.startswith("$moddir$"):
                 mod, _, rel = name[len("$moddir$"):].partition("/")
-                folder = self._mods / mod
-                if folder.is_dir():
-                    text = (folder / rel).read_text(encoding="utf-8", errors="replace")
-                    return text[: self._HEAD]
-                archive = self._mods / f"{mod}.zip"
-                if archive.is_file():
-                    with zipfile.ZipFile(archive) as zf:
-                        return zf.read(rel).decode("utf-8", errors="replace")[: self._HEAD]
+                for base in self._mod_dirs:
+                    folder = base / mod
+                    if folder.is_dir():
+                        text = (folder / rel).read_text(encoding="utf-8", errors="replace")
+                        return text[: self._HEAD]
+                    archive = base / f"{mod}.zip"
+                    if archive.is_file():
+                        with zipfile.ZipFile(archive) as zf:
+                            return zf.read(rel).decode("utf-8", errors="replace")[: self._HEAD]
         except (OSError, KeyError, zipfile.BadZipFile):
             return None
         return None
@@ -628,27 +646,64 @@ def _extract_placeables(
 
 
 def _extract_land(
-    c: _Collector, root: ET.Element | None, farm_ids: set[str], main_id: str | None
+    c: _Collector,
+    root: ET.Element | None,
+    farm_ids: set[str],
+    main_id: str | None,
+    map_areas: Mapping[str, float] | None = None,
+    manual_areas: Mapping[str, float] | None = None,
+    map_note: str = "",
 ) -> None:
+    """Owned parcels + their total area.
+
+    ``farmland.xml`` only stores ``id`` + ``farmId``: each parcel's area comes from
+    the map (``map_areas``) or, for an unreadable map (DLC), from what the player
+    typed per parcel (``manual_areas``). One parcel without an area makes the total
+    "non disponible" — a partial sum would silently understate it.
+    """
     if root is None:
         return
-    # farmland.xml only stores id + farmId: the area is not in the savegame.
     owned = [
-        fl for fl in root.iter("farmland") if fl.get("farmId") not in (None, "", "0")
+        fl.get("id", "") for fl in root.iter("farmland")
+        if fl.get("farmId") not in (None, "", "0")
         and (not farm_ids or fl.get("farmId") == main_id)
     ]
     c.put("land.count", float(len(owned)))
-    area = 0.0
-    found = False
-    for fl in owned:
-        for attr in ("areaInHa", "areaHa", "hectares"):
-            v = _num(fl.get(attr))
-            if v is not None:
-                area += v
-                found = True
-                break
-    if found:
-        c.put("land.area", area, Q_CALC, "Somme des surfaces des parcelles possédées.")
+    manual_areas = manual_areas or {}
+    total = 0.0
+    from_map = from_manual = 0
+    missing: list[str] = []
+    for pid in owned:
+        mapped = map_areas.get(pid) if map_areas is not None else None
+        c.parcels[pid] = mapped
+        if mapped is not None:
+            total += mapped
+            from_map += 1
+        elif pid in manual_areas:
+            total += manual_areas[pid]
+            from_manual += 1
+        else:
+            missing.append(pid)
+    if missing:
+        listed = ", ".join(f"n° {p}" for p in sorted(missing, key=_parcel_order)[:10])
+        c.put(
+            "land.area",
+            None,
+            note=f"{map_note}Surface à saisir pour {len(missing)} parcelle(s) : {listed} "
+            "(bouton « 🌾 Surfaces des parcelles… »).",
+        )
+        return
+    if from_manual and not from_map:
+        c.put("land.area", total, Q_MANUAL, "Somme des surfaces saisies par parcelle.")
+    else:
+        note = "Calculée depuis la carte des parcelles du jeu."
+        if from_manual:
+            note += f" {from_manual} parcelle(s) saisie(s) à la main."
+        c.put("land.area", total, Q_CALC, note)
+
+
+def _parcel_order(pid: str) -> tuple[int, str]:
+    return (int(pid), "") if pid.isdigit() else (1 << 30, pid)
 
 
 def _extract_crops(c: _Collector, root: ET.Element | None) -> None:
@@ -710,7 +765,7 @@ def _finalise(c: _Collector) -> None:
         c.put(
             "land.area",
             None,
-            note="La surface n'est pas écrite dans la sauvegarde : saisie manuelle possible.",
+            note="Parcelles possédées introuvables dans la sauvegarde.",
         )
     for key in ("vine.area", "vine.grapesHarvested", "olive.olivesHarvested", "vine.wineProduced", "vine.wineSold", "vine.revenue",
                 "olive.area", "olive.oilProduced", "olive.oilSold", "olive.revenue"):
@@ -729,19 +784,41 @@ def extract_stats(
     farm_id: str | None = None,
     *,
     install_dir: Path | None = None,
-    mods_dir: Path | None = None,
+    mod_dirs: Sequence[Path] = (),
+    parcel_areas: Mapping[str, Mapping[str, float]] | None = None,
 ) -> StatsSnapshot:
-    """Read every available statistic of one farm (default: farm 1) from a savegame folder."""
+    """Read every available statistic of one farm (default: farm 1) from a savegame folder.
+
+    ``mod_dirs`` (game mods folder, library) let vehicle XMLs and the map be read;
+    ``parcel_areas`` holds the areas typed per parcel, keyed by map id.
+    """
     c = _Collector()
     career = _parse_xml(savegame_dir / "careerSavegame.xml")
+    if career is not None:
+        c.map_id = (career.findtext("settings/mapId") or "").strip()
     farm_ids, main_id = _extract_farms(c, _parse_xml(savegame_dir / "farms.xml"), farm_id)
-    resolver = VehicleResolver(install_dir, mods_dir)
+    resolver = VehicleResolver(install_dir, mod_dirs)
     _extract_vehicles(c, _parse_xml(savegame_dir / "vehicles.xml"), farm_ids, main_id, resolver)
     _extract_placeables(c, _parse_xml(savegame_dir / "placeables.xml"), farm_ids, main_id)
     land = savegame_dir / "farmland.xml"
     if not land.is_file():
         land = savegame_dir / "farmlands.xml"  # older / hand-made layouts
-    _extract_land(c, _parse_xml(land), farm_ids, main_id)
+    areas = map_farmland_areas(c.map_id, install_dir, mod_dirs) if c.map_id else None
+    if areas is None and is_dlc_map(c.map_id):
+        map_note = "Carte DLC chiffrée : surfaces illisibles. "
+    elif areas is None:
+        map_note = "Carte des parcelles introuvable. "
+    else:
+        map_note = ""
+    _extract_land(
+        c,
+        _parse_xml(land),
+        farm_ids,
+        main_id,
+        areas.areas if areas else None,
+        (parcel_areas or {}).get(c.map_id),
+        map_note,
+    )
     _extract_crops(c, _parse_xml(savegame_dir / "fields.xml"))
     _extract_time(c, career, _parse_xml(savegame_dir / "environment.xml"))
     _finalise(c)
@@ -750,6 +827,8 @@ def extract_stats(
         taken_at=datetime.now().isoformat(timespec="seconds"),
         farm_id=c.farm_id,
         farm_name=c.farm_name,
+        map_id=c.map_id,
+        parcels=c.parcels,
         stats=c.stats,
         complete_prefixes=c.complete_prefixes,
     )
@@ -778,3 +857,24 @@ def apply_manual(
             note="Valeur saisie manuellement.",
         )
     return snapshot
+
+
+def owned_parcels(savegame_dir: Path) -> dict[str, list[str]]:
+    """Farmlands owned by each farm (farm id -> parcel ids), from ``farmland.xml``."""
+    path = savegame_dir / "farmland.xml"
+    root = _parse_xml(path if path.is_file() else savegame_dir / "farmlands.xml")
+    out: dict[str, list[str]] = {}
+    if root is None:
+        return out
+    for fl in root.iter("farmland"):
+        farm, pid = fl.get("farmId"), fl.get("id")
+        if pid and farm not in (None, "", "0"):
+            out.setdefault(farm, []).append(pid)
+    for pids in out.values():
+        pids.sort(key=_parcel_order)
+    return out
+
+
+def savegame_map_id(savegame_dir: Path) -> str:
+    career = _parse_xml(savegame_dir / "careerSavegame.xml")
+    return (career.findtext("settings/mapId") or "").strip() if career is not None else ""

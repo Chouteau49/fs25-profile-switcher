@@ -56,6 +56,9 @@ class CareerSettings:
     farm: str = ""  # tracked farm id ("" = farm 1 / first farm of the savegame)
     # Manual values: ``"<key>"`` applies to the tracked farm, ``"<farmId>|<key>"`` to that farm.
     manual_stats: dict[str, float] = field(default_factory=dict)
+    # Areas (ha) typed per parcel for maps whose areas cannot be read (DLC):
+    # ``{map_id: {farmland_id: ha}}``.
+    parcel_areas: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def manual_for(self, farm_id: str, default_farm: str) -> dict[str, float]:
         """Manual values that apply to ``farm_id`` (unprefixed ones only to the tracked farm)."""
@@ -76,11 +79,20 @@ class CareerSettings:
             "savegame": self.savegame,
             "farm": self.farm,
             "manual_stats": dict(self.manual_stats),
+            "parcel_areas": {m: dict(a) for m, a in self.parcel_areas.items()},
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> CareerSettings:
         manual = data.get("manual_stats", {})
+        raw_parcels = data.get("parcel_areas", {})
+        parcel_areas = {
+            str(map_id): {
+                str(pid): float(ha) for pid, ha in areas.items() if isinstance(ha, int | float)
+            }
+            for map_id, areas in (raw_parcels.items() if isinstance(raw_parcels, dict) else [])
+            if isinstance(areas, dict)
+        }
         return cls(
             mode=str(data.get("mode", MODE_OBJECTIVES)),
             savegame=str(data.get("savegame", "")),
@@ -90,6 +102,7 @@ class CareerSettings:
                 for k, v in (manual.items() if isinstance(manual, dict) else [])
                 if isinstance(v, int | float)
             },
+            parcel_areas=parcel_areas,
         )
 
 
