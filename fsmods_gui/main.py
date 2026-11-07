@@ -1,12 +1,21 @@
 """GUI entry point — creates the Qt application and shows the main window."""
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import traceback
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from . import __version__
 from . import config as cfgmod
+from .app_logging import setup_logging
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QApplication
+
+log = logging.getLogger(__name__)
 
 
 def _qt_plugin_root_candidates() -> list[Path]:
@@ -66,6 +75,7 @@ def _configure_qt_plugin_paths() -> None:
 
 def _show_startup_error(title: str, message: str) -> int:
     """Display a Qt message box if PySide6 is available, else print to stderr."""
+    log.error("%s : %s", title, message)
     try:
         from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -75,6 +85,25 @@ def _show_startup_error(title: str, message: str) -> int:
     except ImportError:
         print(f"[{title}] {message}", file=sys.stderr)
     return 2
+
+
+def _forward_qt_messages() -> None:
+    """Send Qt's own warnings ("QThread: Destroyed while…") to the log file."""
+    from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+
+    levels = {
+        QtMsgType.QtDebugMsg: logging.DEBUG,
+        QtMsgType.QtInfoMsg: logging.INFO,
+        QtMsgType.QtWarningMsg: logging.WARNING,
+        QtMsgType.QtCriticalMsg: logging.ERROR,
+        QtMsgType.QtFatalMsg: logging.CRITICAL,
+    }
+    qt_log = logging.getLogger("qt")
+
+    def forward(message_type, _context, message: str) -> None:
+        qt_log.log(levels.get(message_type, logging.WARNING), message)
+
+    qInstallMessageHandler(forward)
 
 
 def _app_icon_candidates() -> list[Path]:
@@ -98,7 +127,7 @@ def _app_icon_candidates() -> list[Path]:
     return unique
 
 
-def _configure_app_icon(app: object) -> None:
+def _configure_app_icon(app: QApplication) -> None:
     try:
         from PySide6.QtGui import QIcon
     except ImportError:
@@ -116,6 +145,12 @@ def _configure_app_icon(app: object) -> None:
 
 def run(argv: list[str] | None = None) -> int:
     _configure_qt_plugin_paths()
+
+    try:
+        setup_logging()
+    except OSError as exc:  # a log folder that can't be created must not stop the app
+        print(f"Journal indisponible : {exc}", file=sys.stderr)
+    log.info("Démarrage v%s (Python %s)", __version__, sys.version.split()[0])
 
     try:
         from PySide6.QtWidgets import QApplication
@@ -149,6 +184,7 @@ def run(argv: list[str] | None = None) -> int:
     from .main_window import MainWindow
     from .state import AppState
 
+    _forward_qt_messages()
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName("fs25-profile-switcher")
     app.setOrganizationName("fs25-profile-switcher")

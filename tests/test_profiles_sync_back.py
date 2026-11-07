@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import zipfile
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from fsmods_gui.profiles.sync_back import (
     compute_diff,
     import_into_library,
     remove_from_profile,
-    snapshot_hashes,
+    snapshot_fingerprints,
 )
 
 MODDESC = """<?xml version="1.0" encoding="utf-8"?>
@@ -80,6 +81,7 @@ def test_compute_diff_detects_updated_mod(tmp_path: Path) -> None:
 
     lib_a = gp.library_mods_dir / "A.zip"
     _make_zip(lib_a, moddesc=MODDESC.replace("1.0.0.0", "1.0.0.0"))
+    os.utime(lib_a, (1, 1))  # same size, and both could land on the same clock tick
 
     catalog = Catalog(
         mods_dir=gp.library_mods_dir,
@@ -103,19 +105,20 @@ def test_compute_diff_detects_updated_mod_with_snapshot_even_if_library_matches(
     _make_zip(gp.library_mods_dir / "A.zip", moddesc=MODDESC.replace("1.0.0.0", "1.0.0.0"))
 
     profile = Profile(name="X", mods=["A.zip"])
-    baseline = snapshot_hashes(gp.mods_dir, profile.all_mod_filenames())
+    baseline = snapshot_fingerprints(gp.mods_dir, profile.all_mod_filenames())
 
     # Simulate in-game update with hardlink-like final state:
     # game and library both end up with the new content.
     _make_zip(gp.mods_dir / "A.zip", moddesc=MODDESC.replace("1.0.0.0", "1.3.0.0"))
     _make_zip(gp.library_mods_dir / "A.zip", moddesc=MODDESC.replace("1.0.0.0", "1.3.0.0"))
+    os.utime(gp.mods_dir / "A.zip", (1, 1))  # same size: the time is what changed
 
     catalog = Catalog(
         mods_dir=gp.library_mods_dir,
         entries={"A.zip": CatalogEntry(filename="A.zip", title="A", version="1")},
     )
 
-    diff = compute_diff(profile, gp, catalog, baseline_hashes=baseline)
+    diff = compute_diff(profile, gp, catalog, baseline=baseline)
     assert diff.updated_in_game == ["A.zip"]
     assert diff.has_changes
 
@@ -217,3 +220,65 @@ def test_import_into_library_of_a_hardlinked_mod_is_a_no_op(tmp_path: Path) -> N
     import_into_library("Linked.zip", gp, catalog)
     assert "Linked.zip" in catalog.entries
     assert (gp.library_mods_dir / "Linked.zip").is_file()
+
+
+# ------------------------------------------- no reading of whole mods to compare
+
+
+def _no_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail the test if a zip is read: a profile weighs up to 30 GB."""
+    import filecmp
+
+    def refuse(*_args: object, **_kwargs: object) -> bool:
+        raise AssertionError("contenu lu alors que les métadonnées suffisent")
+
+    monkeypatch.setattr(filecmp, "cmp", refuse)
+
+
+def test_snapshot_and_diff_of_hardlinked_mods_read_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gp = _gp(tmp_path)
+    _linked(gp, "A.zip")
+    catalog = Catalog(
+        mods_dir=gp.library_mods_dir,
+        entries={"A.zip": CatalogEntry(filename="A.zip", title="A", version="1")},
+    )
+    profile = Profile(name="X", mods=["A.zip"])
+    _no_read(monkeypatch)
+    baseline = snapshot_fingerprints(gp.mods_dir, ["A.zip", "Gone.zip"])
+    assert list(baseline) == ["A.zip"]
+    assert not compute_diff(profile, gp, catalog, baseline=baseline).has_changes
+
+
+def _catalog_of(gp: GameProfile, name: str) -> Catalog:
+    return Catalog(
+        mods_dir=gp.library_mods_dir,
+        entries={name: CatalogEntry(filename=name, title=name, version="1")},
+    )
+
+
+def test_a_mod_replaced_during_the_game_is_detected(tmp_path: Path) -> None:
+    gp = _gp(tmp_path)
+    _linked(gp, "A.zip")
+    profile = Profile(name="X", mods=["A.zip"])
+    baseline = snapshot_fingerprints(gp.mods_dir, ["A.zip"])
+    (gp.mods_dir / "A.zip").unlink()  # ModHub update: the link is replaced by a new file
+    _make_zip(gp.mods_dir / "A.zip", moddesc=MODDESC.replace("Newcomer", "Longer title"))
+    diff = compute_diff(profile, gp, _catalog_of(gp, "A.zip"), baseline=baseline)
+    assert diff.updated_in_game == ["A.zip"]
+
+
+def test_copies_are_compared_without_a_baseline(tmp_path: Path) -> None:
+    import shutil
+
+    gp = _gp(tmp_path)
+    _make_zip(gp.library_mods_dir / "A.zip")
+    profile = Profile(name="X", mods=["A.zip"])
+    shutil.copy2(gp.library_mods_dir / "A.zip", gp.mods_dir / "A.zip")  # cross-volume copy
+    assert compute_diff(profile, gp, _catalog_of(gp, "A.zip")).updated_in_game == []
+
+    data = (gp.library_mods_dir / "A.zip").read_bytes()
+    (gp.mods_dir / "A.zip").write_bytes(data[:-1] + bytes([data[-1] ^ 1]))  # same size
+    os.utime(gp.mods_dir / "A.zip", (1, 1))  # never the same clock tick as the copy
+    assert compute_diff(profile, gp, _catalog_of(gp, "A.zip")).updated_in_game == ["A.zip"]

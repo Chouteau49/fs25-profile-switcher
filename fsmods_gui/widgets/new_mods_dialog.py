@@ -286,7 +286,7 @@ class NewModsPanel(QWidget):
         a = self._assign.get(pm.filename)
         if a:
             n = len(a["p"]) + len(a["c"])
-        test_badge = _TEST_BADGE.get(self._test_status.get(pm.filename), "")
+        test_badge = _TEST_BADGE.get(self._test_status.get(pm.filename, ""), "")
         test_mark = f"{test_badge} " if test_badge else ""
         mark = "✓ " if checked else ""
         tag = self._STATUS_TAG.get(pm.status, "")
@@ -566,7 +566,7 @@ class NewModsPanel(QWidget):
         lines = [f"Test : {res.summary()}"]
         for chk in res.checks[:6]:
             prefix = _TEST_BADGE.get(
-                {"ok": TEST_OK, "warn": TEST_WARN, "error": TEST_KO}.get(chk.level),
+                {"ok": TEST_OK, "warn": TEST_WARN, "error": TEST_KO}.get(chk.level, ""),
                 "•",
             )
             line = f"{prefix} {chk.label}"

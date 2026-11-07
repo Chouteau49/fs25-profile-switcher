@@ -1,8 +1,8 @@
 [project]
 name = "fs25-profile-switcher"
-version = "0.8.1"
+version = "0.9.0"
 description = "Desktop GUI to manage per-save mod profiles for Farming Simulator 25 / 22"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Julien Chouteau" }]
 keywords = ["farming-simulator", "fs25", "fs22", "mods", "profile-manager", "gui"]
@@ -15,20 +15,21 @@ classifiers = [
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Games/Entertainment",
 ]
 dependencies = [
     "PySide6>=6.7",
     "psutil>=5.9",
     "pyyaml>=6.0",
-    "Pillow>=10.0",
+    "Pillow>=13.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.7"]
+dev = ["pytest>=8.0", "ruff>=0.7", "mypy>=1.10", "types-PyYAML"]
 build = ["nuitka>=2.4"]
 
 [project.gui-scripts]
@@ -48,7 +49,7 @@ include = ["fsmods_gui*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -59,3 +60,7 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+files = ["fsmods_gui"]
+ignore_missing_imports = true

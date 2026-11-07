@@ -5,6 +5,7 @@ never blocks. Use signals for progress + completion.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,13 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from .config import GameProfile
 from .profiles.activator import (
     activate_profile,
+    game_process_running,
     launch_game,
 )
 from .profiles.catalog import Catalog, scan_library
 from .profiles.profile import Profile
+
+log = logging.getLogger(__name__)
 
 
 class ScanWorker(QObject):
@@ -34,6 +38,7 @@ class ScanWorker(QObject):
         try:
             catalog = scan_library(self._mods_dir, cache_path=self._cache_path)
         except Exception as exc:  # noqa: BLE001 — surface any failure to UI
+            log.exception("Scan de la bibliothèque échoué")
             self.failed.emit(str(exc))
             return
         self.finished.emit(catalog)
@@ -53,6 +58,7 @@ class ConfigBackupWorker(QObject):
         try:
             reports = self._state.backup_config()
         except Exception as exc:  # noqa: BLE001 — surface any failure to UI
+            log.exception("Sauvegarde de la config échouée")
             self.failed.emit(str(exc))
             return
         self.finished.emit(reports)
@@ -91,6 +97,7 @@ class ActivateWorker(QObject):
                 mod_filenames=self._mod_filenames,
             )
         except Exception as exc:  # noqa: BLE001
+            log.exception("Activation échouée")
             self.failed.emit(str(exc))
             return
         launched = False
@@ -132,6 +139,7 @@ class TestRunnerWorker(QObject):
                 progress=lambda done, total, name: self.progress.emit(done, total, name),
             )
         except Exception as exc:  # noqa: BLE001 — surface any failure to UI
+            log.exception("Validation des mods échouée")
             self.failed.emit(str(exc))
             return
         self.finished.emit(results)
@@ -140,8 +148,8 @@ class TestRunnerWorker(QObject):
 class GameWatcher(QObject):
     """Poll for the FS process; emit :attr:`stopped` once it terminates.
 
-    Relies on ``psutil`` to enumerate processes by executable name. The watcher
-    only fires :attr:`stopped` once it has *seen* the process running at least
+    Relies on :func:`.profiles.activator.game_process_running`. The watcher only
+    fires :attr:`stopped` once it has *seen* the process running at least
     once — that avoids a spurious "game closed" right after activation, before
     Steam has had time to spin the binary up.
     """
@@ -149,16 +157,10 @@ class GameWatcher(QObject):
     started = Signal()
     stopped = Signal()
 
-    DEFAULT_PROCESS_NAMES = ("FarmingSimulator2025.exe", "FarmingSimulator2022.exe")
     POLL_MS = 3000
 
-    def __init__(
-        self,
-        process_names: tuple[str, ...] = DEFAULT_PROCESS_NAMES,
-        parent: QObject | None = None,
-    ) -> None:
+    def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._names = tuple(n.lower() for n in process_names)
         self._timer = QTimer(self)
         self._timer.setInterval(self.POLL_MS)
         self._timer.timeout.connect(self._tick)
@@ -174,31 +176,10 @@ class GameWatcher(QObject):
         self._active = False
         self._timer.stop()
 
-    def _is_running(self) -> bool:
-        try:
-            import psutil  # local import: keeps Qt-free modules importable on systems w/o psutil
-        except ImportError:
-            return False
-        for proc in psutil.process_iter(["name"]):
-            # Get name safely, handle potential AccessDenied errors
-            try:
-                name = (proc.info.get("name") or "").lower()
-                if not name:
-                    continue
-                # Exact match
-                if name in self._names:
-                    return True
-                # Partial match for robustness (e.g. FS25.exe or different capitalization)
-                if "farmingsimulator" in name and name.endswith(".exe"):
-                    return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-        return False
-
     def _tick(self) -> None:
         if not self._active:
             return
-        running = self._is_running()
+        running = game_process_running()
         if running and not self._seen_running:
             self._seen_running = True
             self.started.emit()

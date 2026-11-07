@@ -4,11 +4,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..profiles.official_maps import official_map
 from ..profiles.savegame_audit import list_savegames, parse_savegame
 from .formatting import format_stat
 from .objectives import MODE_OFF, Objective
 from .stats import Q_NA, StatsSnapshot, apply_manual, extract_stats, savegame_map_id
-from .store import Career
+from .store import Career, CareerError
 
 
 @dataclass
@@ -103,6 +104,16 @@ def sync_career(
         newly_completed=result.newly_completed,
         newly_unlocked=result.newly_unlocked,
     )
+
+
+def linked_official_map(career_dir: Path, user_dir: Path) -> str | None:
+    """Id of the official map of the savegame a career is linked to, if it is one."""
+    try:
+        savegame = Career.load(career_dir).settings.savegame
+    except CareerError:
+        return None
+    found = official_map(savegame_map_id(user_dir / savegame)) if savegame else None
+    return found.map_id if found else None
 
 
 def guess_savegame(

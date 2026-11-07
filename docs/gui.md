@@ -19,7 +19,8 @@ L'interface graphique `fsmods-gui` (du projet **fs25-profile-switcher**) permet 
 - **Profils** (gauche) : la liste de tes parties. Un fichier JSON par profil sous `library/profiles/`.
 - **Éditeur** (droite) : choisir la carte (un mod de carte, ou une carte officielle 🏛 du jeu / d'un DLC, avec sa vignette), ajouter / retirer des mods. Les modifications sont sauvegardées automatiquement.
 - **Au démarrage**, l'application sélectionne le dernier profil joué (activé).
-- **Activer & lancer FS25** : remplace le contenu de `Documents\My Games\FarmingSimulator2025\mods\` par les mods du profil (hardlinks NTFS instantanés), puis démarre FS25 via Steam. Un zip du dossier du jeu absent de la bibliothèque ou différent de sa copie n'est jamais supprimé : il est déplacé dans `_inbox` et « Nouveaux mods » propose de l'importer.
+- **Activer & lancer FS25** : remplace le contenu de `Documents\My Games\FarmingSimulator2025\mods\` par les mods du profil (hardlinks NTFS instantanés), puis démarre FS25 via Steam. Un zip du dossier du jeu absent de la bibliothèque ou différent de sa copie n'est jamais supprimé : il est déplacé dans `_inbox` et « Nouveaux mods » propose de l'importer. L'activation est refusée tant que le jeu tourne.
+- **📝 Journal de l'appli** (barre d'outils) : ouvre `%LOCALAPPDATA%\fs25-profile-switcher\logs`. `fsmods-gui.log` garde les erreurs internes, `crash.log` les plantages durs. C'est le fichier à regarder (ou à envoyer) quand l'appli se comporte mal.
 - **Synchronisation auto** : à la fermeture de FS25, un dialogue liste les mods ajoutés (téléchargés via ModHub en jeu) ou retirés, et te demande comment les ranger.
 
 ## Bibliothèque centrale

@@ -86,15 +86,14 @@ copy config.example.yaml config.yaml
 fsmods-gui
 ```
 
-Python ≥ 3.10.
+Python ≥ 3.11.
 
 ## Build du `.exe` (Nuitka)
 
 Recommandé (build onefile stable) :
 
 ```powershell
-.venv313\Scripts\activate
-pip install -e .[build]
+py -3.13 -m venv .venv313
 .\packaging\build.ps1
 ```
 
@@ -103,6 +102,8 @@ Le binaire atterrit dans `dist\fsmods-gui.exe`. Voir [packaging/build.ps1](packa
 Notes de build :
 
 - Le script utilise automatiquement `.venv313` pour le mode onefile s'il existe (plus stable que Python 3.14 avec Nuitka 4.1.1).
+- Il installe les versions de `requirements.lock`, lance les tests avec ce Python, puis compile dans `dist_staging\`. L'exe de `dist\` n'est remplacé qu'à la fin : un build raté le laisse intact.
+- Pour mettre à jour les dépendances : `pip install -U …` dans `.venv313`, puis `pip freeze --exclude-editable > requirements.lock`.
 - Les logs de build sont écrits hors dépôt dans `%LOCALAPPDATA%\fs25-profile-switcher\build-logs`.
 
 ## Documentation

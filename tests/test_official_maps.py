@@ -61,3 +61,10 @@ def test_no_thumbnail_without_sources(tmp_path: Path) -> None:
     assert official_map_thumbnail("MapUS", tmp_path, tmp_path / "cache") is None
     assert official_map_thumbnail("FS25_Mod.Map", tmp_path, tmp_path / "cache") is None
     assert official_map_thumbnail("MapUS", tmp_path, None) is None
+
+
+def test_official_preview_with_an_unexpected_format_is_ignored(tmp_path: Path) -> None:
+    ui = tmp_path / "data" / "maps" / "mapUS" / "textures" / "ui"
+    ui.mkdir(parents=True)
+    Image.new("RGB", (64, 64), "blue").save(ui / "preview.png", "TIFF")
+    assert official_map_thumbnail("MapUS", tmp_path, tmp_path / "cache") is None

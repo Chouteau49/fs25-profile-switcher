@@ -6,18 +6,22 @@ by ``(size, mtime_ns)`` so a full rescan only re-parses zips that actually chang
 from __future__ import annotations
 
 import json
+import logging
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .atomic import atomic_write_text
+
+log = logging.getLogger(__name__)
+
 try:
     from PIL import Image
     HAS_PILLOW = True
 except ImportError:
-    import logging
-    logging.getLogger(__name__).warning("Pillow n'est pas installe. Les icones de mods (.dds) ne seront pas visibles.")
+    log.warning("Pillow n'est pas installe. Les icones de mods (.dds) ne seront pas visibles.")
     HAS_PILLOW = False
 
 CACHE_FILE_NAME = "index.json"
@@ -322,7 +326,7 @@ class Catalog:
             "mods_dir": str(self.mods_dir),
             "entries": {k: v.to_dict() for k, v in self.entries.items()},
         }
-        cache_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        atomic_write_text(cache_path, json.dumps(payload, indent=2, ensure_ascii=False))
 
 
 def _load_cache(cache_path: Path) -> dict[str, CatalogEntry]:
@@ -348,6 +352,9 @@ def _load_cache(cache_path: Path) -> dict[str, CatalogEntry]:
 
 
 _ICON_EXTS = (".dds", ".png", ".jpg", ".jpeg")
+# Pillow picks its decoder from the file content, whatever the extension: without this
+# list a third-party zip could reach any of its decoders through a fake "icon.dds".
+ICON_FORMATS = ("DDS", "PNG", "JPEG")
 
 
 def _extract_icon(
@@ -392,15 +399,15 @@ def _extract_icon(
 
         with zf.open(real_name) as src:
             if HAS_PILLOW:
-                with Image.open(src) as img:
-                    if img.mode != "RGBA":
-                        img = img.convert("RGBA")
-                    img.save(target_path, "PNG")
+                with Image.open(src, formats=ICON_FORMATS) as img:
+                    rgba = img if img.mode == "RGBA" else img.convert("RGBA")
+                    rgba.save(target_path, "PNG")
             else:
                 with open(target_path, "wb") as dst:
                     dst.write(src.read())
         return str(target_path)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — a third-party icon must never stop a scan
+        log.info("Icône illisible (%s) : %s", zip_stem, exc)
         return None
 
 

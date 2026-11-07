@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import (
     QAbstractListModel,
     QModelIndex,
+    QPersistentModelIndex,
     QRect,
     QSize,
     Qt,
@@ -75,6 +76,10 @@ _EXCLUDED_FG = QColor(150, 150, 150)
 _MISSING_FG = QColor(220, 80, 80)
 
 
+AnyIndex = QModelIndex | QPersistentModelIndex  # what Qt's model API accepts
+_ROOT_INDEX = QModelIndex()
+
+
 @dataclass
 class GalleryItem:
     """One row of the panel: a mod filename plus how the target uses it."""
@@ -113,8 +118,8 @@ class ModListModel(QAbstractListModel):
             return self._items[row]
         return None
 
-    def rowCount(self, parent: QModelIndex | None = None) -> int:
-        return 0 if parent is not None and parent.isValid() else len(self._items)
+    def rowCount(self, parent: AnyIndex = _ROOT_INDEX) -> int:
+        return 0 if parent.isValid() else len(self._items)
 
     def _small_icon(self, entry: CatalogEntry | None) -> QIcon | None:
         if entry is None or not entry.icon_cache_path:
@@ -145,7 +150,7 @@ class ModListModel(QAbstractListModel):
                 label += " (exclu)"
         return label
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
+    def data(self, index: AnyIndex, role: int = Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
         item = self._items[index.row()]
@@ -211,10 +216,10 @@ class ContentCardDelegate(QStyledItemDelegate):
         pix = self._pixmaps[path]
         return pix if not pix.isNull() else None
 
-    def sizeHint(self, option, index: QModelIndex) -> QSize:
+    def sizeHint(self, option, index: AnyIndex) -> QSize:
         return QSize(CARD_W, CARD_H)
 
-    def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
+    def paint(self, painter: QPainter, option, index: AnyIndex) -> None:
         entry = index.data(ROLE_ENTRY)
         filename = index.data(ROLE_FILENAME) or ""
         kind = index.data(ROLE_KIND) or KIND_PLAIN

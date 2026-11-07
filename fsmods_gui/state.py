@@ -6,6 +6,7 @@ depend on PySide6.
 from __future__ import annotations
 
 import contextlib
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,6 +62,13 @@ class AppState:
     profiles: list[Profile] = field(default_factory=list)
     collections: list[Collection] = field(default_factory=list)
     current_profile: Profile | None = None
+    # Config files that could not be read: (path, reason), shown to the user by the GUI.
+    broken_profiles: list[tuple[Path, str]] = field(default_factory=list)
+    broken_collections: list[tuple[Path, str]] = field(default_factory=list)
+
+    @property
+    def broken_configs(self) -> list[tuple[Path, str]]:
+        return self.broken_profiles + self.broken_collections
 
     @property
     def game(self) -> GameProfile:
@@ -74,7 +82,10 @@ class AppState:
             self.collections = []
             return self.collections
         game.library_collections_dir.mkdir(parents=True, exist_ok=True)
-        self.collections = list_collections(game.library_collections_dir)
+        self.broken_collections = []
+        self.collections = list_collections(
+            game.library_collections_dir, errors=self.broken_collections
+        )
         return self.collections
 
     def collection_mods_map(self) -> dict[str, list[str]]:
@@ -288,7 +299,8 @@ class AppState:
             self.profiles = []
             return self.profiles
         game.library_profiles_dir.mkdir(parents=True, exist_ok=True)
-        self.profiles = list_profiles(game.library_profiles_dir)
+        self.broken_profiles = []
+        self.profiles = list_profiles(game.library_profiles_dir, errors=self.broken_profiles)
         # Try to keep the same current_profile selected if still present.
         if self.current_profile is not None:
             slug = self.current_profile.slug
@@ -300,6 +312,25 @@ class AppState:
             # First load: reopen on the profile played last.
             self.current_profile = most_recently_played(self.profiles) or self.profiles[0]
         return self.profiles
+
+    def detect_official_maps(self) -> None:
+        """Give a map-less profile its official map, from the savegame of its career.
+
+        E.g. a "Kinlaig" profile (DLC map, no map mod) linked to a Kinlaig savegame gets
+        ``official_map``, so its thumbnail shows. A chosen map is never overridden.
+        """
+        from .career.sync import linked_official_map
+
+        game = self.game
+        if game.library_careers_dir is None:
+            return
+        for prof in self.profiles:
+            if prof.map_mod or prof.official_map or prof.path is None:
+                continue
+            found = linked_official_map(game.library_careers_dir / prof.slug, game.mods_dir.parent)
+            if found:
+                prof.official_map = found
+                prof.save()
 
     def new_profile(self, name: str) -> Profile:
         game = self.game
@@ -317,6 +348,10 @@ class AppState:
     def delete_profile(self, profile: Profile) -> None:
         if profile.path and profile.path.is_file():
             profile.path.unlink()
+        careers = self.game.library_careers_dir
+        if careers is not None and (careers / profile.slug).is_dir():
+            # A new profile of the same name must not inherit this career.
+            shutil.rmtree(careers / profile.slug, ignore_errors=True)
         self.profiles = [p for p in self.profiles if p.slug != profile.slug]
         if self.current_profile and self.current_profile.slug == profile.slug:
             self.current_profile = self.profiles[0] if self.profiles else None

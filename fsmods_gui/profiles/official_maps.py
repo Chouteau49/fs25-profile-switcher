@@ -27,6 +27,8 @@ try:
 except ImportError:  # pragma: no cover - Pillow is a hard dependency
     HAS_PILLOW = False
 
+from .catalog import ICON_FORMATS
+
 log = logging.getLogger(__name__)
 
 THUMB_SIZE = 256
@@ -117,19 +119,21 @@ def official_map_thumbnail(
     if source is None:
         return None
     try:
-        with Image.open(source) as img:
-            img = img.convert("RGB")
-            if m.crop != (0.0, 0.0, 1.0, 1.0):
-                w, h = img.size
-                left, top, right, bottom = m.crop
-                img = img.crop((round(left * w), round(top * h), round(right * w), round(bottom * h)))
-            scale = THUMB_SIZE / max(img.size)  # down- or up-scale (Steam crop is small)
-            img = img.resize(
-                (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
-                Image.Resampling.LANCZOS,
+        with Image.open(source, formats=ICON_FORMATS) as opened:
+            image = opened.convert("RGB")
+        if m.crop != (0.0, 0.0, 1.0, 1.0):
+            w, h = image.size
+            left, top, right, bottom = m.crop
+            image = image.crop(
+                (round(left * w), round(top * h), round(right * w), round(bottom * h))
             )
-            target.parent.mkdir(parents=True, exist_ok=True)
-            img.save(target, "PNG")
+        scale = THUMB_SIZE / max(image.size)  # down- or up-scale (Steam crop is small)
+        image = image.resize(
+            (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        image.save(target, "PNG")
     except (OSError, ValueError) as exc:
         log.warning("Vignette de %s illisible : %s", m.title, exc)
         return None

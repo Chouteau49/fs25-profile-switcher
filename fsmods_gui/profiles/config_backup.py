@@ -16,6 +16,7 @@ file), never when the source is empty, and every copy is atomic.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import socket
@@ -25,6 +26,10 @@ import zlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+from .atomic import atomic_write_bytes
+
+log = logging.getLogger(__name__)
 
 MODE_MERGE = "merge"      # add/overwrite, keep existing entries not in the zip
 MODE_REPLACE = "replace"  # wipe existing *.json first, then restore
@@ -57,6 +62,15 @@ def _atomic_copy(src: Path, dst: Path) -> None:
     os.replace(tmp, dst)
 
 
+def _is_valid_json(path: Path) -> bool:
+    """False for a damaged file: it must not replace a good copy, nor spoil an archive."""
+    try:
+        json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def _career_files(careers_dir: Path | None) -> list[Path]:
     if not careers_dir or not careers_dir.is_dir():
         return []
@@ -73,13 +87,19 @@ def export_config(
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
     sources = {"profiles": profiles_dir, "collections": collections_dir}
     tmp = dest_zip.with_name(dest_zip.name + ".tmp")
+    entries = [
+        (p, f"{section}/{p.name}")
+        for section, src in sources.items()
+        if src and src.is_dir()
+        for p in sorted(src.glob("*.json"))
+    ]
+    entries += [(p, f"{CAREERS_SECTION}/{p.parent.name}/{p.name}") for p in _career_files(careers_dir)]
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
-        for section, src in sources.items():
-            if src and src.is_dir():
-                for p in sorted(src.glob("*.json")):
-                    zf.write(p, f"{section}/{p.name}")
-        for p in _career_files(careers_dir):
-            zf.write(p, f"{CAREERS_SECTION}/{p.parent.name}/{p.name}")
+        for path, name in entries:
+            if _is_valid_json(path):
+                zf.write(path, name)
+            else:
+                log.warning("Fichier illisible exclu de l'archive : %s", path)
     os.replace(tmp, dest_zip)
     return dest_zip
 
@@ -162,7 +182,7 @@ def import_config(
     for d in targets.values():
         d.mkdir(parents=True, exist_ok=True)
     for path, data in planned.items():
-        _write_bytes(path, data)
+        atomic_write_bytes(path, data)
     if mode == MODE_REPLACE:
         result.replaced = True
         stale = [p for d in targets.values() for p in d.glob("*.json")]
@@ -172,13 +192,6 @@ def import_config(
             if p not in planned:
                 p.unlink()
     return result
-
-
-def _write_bytes(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
 
 
 @dataclass
@@ -222,6 +235,10 @@ def mirror_config(
         wanted[Path(CAREERS_SECTION) / p.parent.name / p.name] = p
 
     for rel, src_file in wanted.items():
+        if not _is_valid_json(src_file):
+            log.warning("Fichier illisible non sauvegardé : %s", src_file)
+            result.warnings.append(f"{src_file.name} illisible : sa copie existante est conservée.")
+            continue
         dst = backup_dir / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         _atomic_copy(src_file, dst)
@@ -252,7 +269,7 @@ def mirror_config(
         "host": socket.gethostname(),
         "updated": datetime.now().isoformat(timespec="seconds"),
     }
-    _write_bytes(backup_dir / MARKER_NAME, json.dumps(marker, indent=2).encode("utf-8"))
+    atomic_write_bytes(backup_dir / MARKER_NAME, json.dumps(marker, indent=2).encode("utf-8"))
     return result
 
 

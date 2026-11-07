@@ -11,7 +11,7 @@ Ce document décrit deux scénarios :
 |---|---|---|
 | Steam + FS25 (et/ou FS22) installés | n/a | n/a |
 | Le dossier `Documents\My Games\FarmingSimulator2025\mods\` existe | s'il y a déjà des `.zip` dedans, OK | lance FS25 une fois — il crée le dossier au premier démarrage |
-| Python 3.10+ (mode dev uniquement) | `python --version` | <https://www.python.org/downloads/> (cocher « Add to PATH ») |
+| Python 3.11+ (mode dev uniquement) | `python --version` | <https://www.python.org/downloads/> (cocher « Add to PATH ») |
 
 ---
 

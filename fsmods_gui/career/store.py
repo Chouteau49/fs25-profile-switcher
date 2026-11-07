@@ -12,10 +12,10 @@ Pure logic, no Qt.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..profiles.atomic import atomic_write_text
 from .objectives import (
     MODE_OBJECTIVES,
     EvaluationResult,
@@ -107,11 +107,7 @@ class CareerSettings:
 
 
 def _write_json(path: Path, data: object) -> None:
-    """Atomic write so a crash never leaves a half-written career file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_write_text(path, json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def _read_json(path: Path) -> object | None:

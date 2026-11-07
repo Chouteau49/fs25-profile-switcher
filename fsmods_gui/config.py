@@ -171,8 +171,6 @@ class GameProfile:
 class Config:
     games: dict[str, GameProfile]
     default_game: str
-    pull_overwrite: bool = False
-    push_overwrite: bool = True
     repo_root: Path = field(default_factory=lambda: REPO_ROOT)
 
     def mods_src_dir(self, game: str) -> Path:
@@ -293,6 +291,4 @@ def load(path: Path | None = None) -> Config:
     return Config(
         games=games,
         default_game=default_game,
-        pull_overwrite=bool(data.get("pull_overwrite", False)),
-        push_overwrite=bool(data.get("push_overwrite", True)),
     )

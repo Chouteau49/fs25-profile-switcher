@@ -202,8 +202,8 @@ def _grle_for(resolver: _Resolver, config: ET.Element, farmlands: ET.Element) ->
         data, _rel, _f = resolver.read(grle_ref, i3d_rel)
         if data:
             return data
-    for name in search:  # last resort: by convention, inside the map mod only
-        found = resolver.own.find(name) if resolver.own is not None else None
+    for filename in search:  # last resort: by convention, inside the map mod only
+        found = resolver.own.find(filename) if resolver.own is not None else None
         data = resolver.own.read(found) if found and resolver.own is not None else None
         if data:
             return data
@@ -237,7 +237,7 @@ def _compute(map_id: str, install_dir: Path | None, mod_dirs: tuple[Path, ...]) 
         else:  # base-game map: "MapEU" -> data/maps/mapEU/mapEU.xml
             if install is None:
                 return None
-            maps_dir = install_dir / "data" / "maps"
+            maps_dir = install.root / "data" / "maps"
             folder = next(
                 (p.name for p in maps_dir.iterdir() if p.is_dir() and p.name.lower() == map_id.lower()),
                 None,

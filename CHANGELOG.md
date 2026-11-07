@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.9.0] - 2026-11-07
+
+### Added
+
+- **📝 Journal de l'appli** : l'exe n'a pas de console, les erreurs internes étaient donc invisibles. Elles sont maintenant écrites dans `%LOCALAPPDATA%\fs25-profile-switcher\logs` (`fsmods-gui.log`, tournant, et `crash.log` pour les plantages durs), avec les messages de Qt. Un bouton de la barre d'outils ouvre le dossier, et la barre d'état signale une erreur interne.
+- **Fichiers de config illisibles signalés** : un profil ou une collection endommagé(e) n'est plus ignoré(e) en silence, un message les liste au démarrage.
+- **CI GitHub Actions** (ruff, mypy, tests) sur Python 3.13 et 3.14, et `requirements.lock` pour figer les versions.
+
+### Changed
+
+- **Plus de gel au lancement et à la fermeture du jeu** : les mods sont comparés par hardlink, taille et date au lieu de relire tout leur contenu (4 lectures complètes par partie). Mesuré sur 134 mods : 10 ms au lancement, 50 ms après la partie.
+- `build.ps1` : compile à part (`dist_staging\`) et ne remplace l'exe qu'en cas de succès, ne ferme plus l'appli de force, lance les tests avec le Python qui compile, installe `requirements.lock`, vérifie que les versions concordent, contrôle que l'exe contient bien le code compilé (`packaging/verify_build.py`), et ne s'arrête plus à tort quand sa sortie est redirigée.
+- **Supprimer un profil supprime aussi sa carrière** (le message de confirmation le précise) : un nouveau profil du même nom n'hérite plus d'une ancienne carrière.
+- Python 3.11 minimum (exigé par Pillow 13).
+
+### Fixed
+
+- **Sécurité** : Pillow passe en 13.0 (52 failles connues en 12.2) et seuls les formats DDS, PNG et JPEG sont décodés. Pillow choisissait son décodeur d'après le contenu : un faux `icon.dds` dans un zip tiers pouvait atteindre n'importe lequel. Tes 1 156 mods restent décodés à l'identique.
+- **Écritures atomiques** pour les profils, les collections et le cache : une coupure laisse l'ancien fichier ou le nouveau, jamais un fichier tronqué.
+- **Sauvegardes** : un fichier endommagé ne remplace plus sa bonne copie dans le miroir, et n'entre plus dans les instantanés (qui resteraient impossibles à restaurer).
+- **Activation refusée tant que le jeu tourne** : ses mods sont utilisés, le dossier se serait retrouvé à moitié remplacé.
+
+### Removed
+
+- Options `pull_overwrite` et `push_overwrite`, sans effet depuis la disparition de la CLI (encore présentes dans un `config.yaml`, elles sont ignorées).
+
 ## [0.8.1] - 2026-11-07
 
 ### Fixed

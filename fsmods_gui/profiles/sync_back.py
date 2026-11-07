@@ -11,13 +11,14 @@ produces an actionable diff. It also exposes apply helpers to:
 """
 from __future__ import annotations
 
-import hashlib
+import contextlib
 import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import GameProfile
+from .activator import same_content
 from .catalog import Catalog, _read_moddesc_from_zip
 from .profile import Profile
 
@@ -58,43 +59,39 @@ def _list_game_zips(mods_dir: Path) -> list[str]:
     )
 
 
-def _sha256(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+def _fingerprint(path: Path) -> str:
+    stat = path.stat()
+    return f"{stat.st_size}:{stat.st_mtime_ns}"
 
 
-def snapshot_hashes(mods_dir: Path, filenames: list[str]) -> dict[str, str]:
-    """Return SHA-256 hashes for the subset of zip files currently present."""
-    hashes: dict[str, str] = {}
+def snapshot_fingerprints(mods_dir: Path, filenames: list[str]) -> dict[str, str]:
+    """Size + modification time of the zips currently present.
+
+    Enough to notice that the game replaced a mod, without reading it: a profile
+    weighs up to 30 GB, and this runs in the GUI thread when the game starts.
+    """
+    fingerprints: dict[str, str] = {}
     for filename in filenames:
-        p = mods_dir / filename
-        if not p.is_file():
-            continue
-        try:
-            hashes[filename] = _sha256(p)
-        except OSError:
-            continue
-    return hashes
+        with contextlib.suppress(OSError):
+            fingerprints[filename] = _fingerprint(mods_dir / filename)
+    return fingerprints
 
 
-def _is_updated_in_game(filename: str, game_profile: GameProfile, catalog: Catalog) -> bool:
+def _is_updated_in_game(filename: str, game_profile: GameProfile) -> bool:
     if game_profile.library_mods_dir is None:
         return False
     game_zip = game_profile.mods_dir / filename
     library_zip = game_profile.library_mods_dir / filename
     if not game_zip.is_file() or not library_zip.is_file():
         return False
-    return _sha256(game_zip) != _sha256(library_zip)
+    return not same_content(game_zip, library_zip)
 
 
 def compute_diff(
     profile: Profile,
     game_profile: GameProfile,
     catalog: Catalog,
-    baseline_hashes: dict[str, str] | None = None,
+    baseline: dict[str, str] | None = None,
     effective: list[str] | None = None,
 ) -> SyncDiff:
     """Compare the live game folder to ``profile`` and ``catalog``.
@@ -115,18 +112,14 @@ def compute_diff(
 
     # Primary strategy: compare with the "pre-game" snapshot.
     updated_from_snapshot: set[str] = set()
-    if baseline_hashes:
+    if baseline:
         tracked_now = game_zips & profile_zips
         for filename in sorted(tracked_now):
-            before = baseline_hashes.get(filename)
+            before = baseline.get(filename)
             if before is None:
                 continue
-            game_zip = game_profile.mods_dir / filename
-            if not game_zip.is_file():
-                continue
             try:
-                current_hash = _sha256(game_zip)
-                if current_hash != before:
+                if _fingerprint(game_profile.mods_dir / filename) != before:
                     updated_from_snapshot.add(filename)
             except OSError:
                 continue
@@ -136,7 +129,7 @@ def compute_diff(
     updated_from_library = {
         filename
         for filename in common_tracked
-        if _is_updated_in_game(filename, game_profile, catalog)
+        if _is_updated_in_game(filename, game_profile)
     }
     diff.updated_in_game = sorted(updated_from_snapshot | updated_from_library)
     return diff

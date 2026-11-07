@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
+from .atomic import atomic_write_text
 from .catalog import Catalog
 
 PROFILE_SCHEMA_VERSION = 2
@@ -187,7 +188,7 @@ class Profile:
     def load(cls, path: Path) -> Profile:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
+        except (OSError, ValueError) as exc:  # ValueError: bad JSON or bad encoding
             raise ProfileError(f"{path.name}: invalid JSON ({exc}).") from exc
         return cls.from_dict(data, path=path)
 
@@ -201,11 +202,7 @@ class Profile:
             raise ProfileError("Profile.save() needs a path (or self.path set).")
         if not self.created_at:
             self.created_at = date.today().isoformat()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(self.to_dict(), indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        atomic_write_text(target, json.dumps(self.to_dict(), indent=2, ensure_ascii=False))
         self.path = target
         return target
 
@@ -216,11 +213,13 @@ def most_recently_played(profiles: list[Profile]) -> Profile | None:
     return max(played, key=lambda p: p.last_played or "") if played else None
 
 
-def list_profiles(profiles_dir: Path) -> list[Profile]:
+def list_profiles(
+    profiles_dir: Path, errors: list[tuple[Path, str]] | None = None
+) -> list[Profile]:
     """Load every ``*.json`` profile in ``profiles_dir`` (sorted by name).
 
-    Files that fail to parse are skipped silently — the GUI surfaces errors when
-    the user clicks a broken profile.
+    A file that cannot be read is skipped and, when ``errors`` is given, reported
+    there as ``(path, reason)`` so that the GUI can warn about it.
     """
     if not profiles_dir.is_dir():
         return []
@@ -230,8 +229,9 @@ def list_profiles(profiles_dir: Path) -> list[Profile]:
             continue
         try:
             out.append(Profile.load(p))
-        except ProfileError:
-            continue
+        except ProfileError as exc:
+            if errors is not None:
+                errors.append((p, str(exc)))
     out.sort(key=lambda prof: prof.name.lower())
     return out
 

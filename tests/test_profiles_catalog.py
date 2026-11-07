@@ -187,3 +187,48 @@ def test_catalog_save_cache_roundtrip(tmp_path: Path) -> None:
     data = json.loads(cache_path.read_text())
     assert data["schema"] == CACHE_SCHEMA_VERSION
     assert "a.zip" in data["entries"]
+
+
+# ------------------------------------------------- only expected icon formats
+
+
+def _image_bytes(image_format: str) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buffer, image_format)
+    return buffer.getvalue()
+
+
+def _zip_with_icon(target: Path, data: bytes) -> Path:
+    with zipfile.ZipFile(target, "w") as zf:
+        zf.writestr("modDesc.xml", MAP_MODDESC)
+        zf.writestr("icon.dds", data)
+    return target
+
+
+@pytest.mark.parametrize("image_format", ["DDS", "PNG", "JPEG"])
+def test_expected_icon_formats_are_decoded(tmp_path: Path, image_format: str) -> None:
+    from fsmods_gui.profiles.catalog import _read_moddesc_from_zip
+
+    (tmp_path / "icons").mkdir()
+    mod = _zip_with_icon(tmp_path / "FS25_Mod.zip", _image_bytes(image_format))
+    entry = _read_moddesc_from_zip(mod, icon_cache_dir=tmp_path / "icons")
+    assert entry.icon_cache_path and Path(entry.icon_cache_path).is_file()
+
+
+@pytest.mark.parametrize("image_format", ["TIFF", "BMP", "GIF"])
+def test_other_formats_behind_an_icon_name_reach_no_decoder(
+    tmp_path: Path, image_format: str
+) -> None:
+    # Pillow picks its decoder from the content, not from the ".dds" of the name: a
+    # third-party zip could otherwise reach any of them.
+    from fsmods_gui.profiles.catalog import _read_moddesc_from_zip
+
+    (tmp_path / "icons").mkdir()
+    mod = _zip_with_icon(tmp_path / "FS25_Mod.zip", _image_bytes(image_format))
+    entry = _read_moddesc_from_zip(mod, icon_cache_dir=tmp_path / "icons")
+    assert entry.title == "Pays Alpin"  # the mod itself stays readable
+    assert entry.icon_cache_path is None

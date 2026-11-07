@@ -372,7 +372,9 @@ class ParcelAreasDialog(QDialog):
         edit.setFocus()
         edit.selectAll()
         row = next(r for r, (_f, p, _a) in enumerate(self._rows) if p == following[0])
-        self._table.scrollToItem(self._table.item(row, 0))
+        item = self._table.item(row, 0)
+        if item is not None:
+            self._table.scrollToItem(item)
 
     def _parsed(self, pid: str) -> float | None:
         return parse_area(self._edits[pid].text())

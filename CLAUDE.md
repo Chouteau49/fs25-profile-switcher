@@ -10,12 +10,17 @@ changelog, messages de commit en FR / EN).
 Environnement : Windows, venv `.venv` (dev) ; `.venv313` sert au build Nuitka.
 
 ```powershell
-.venv\Scripts\python -m pytest -q                 # 288 tests, ~5 s, doivent rester verts
+.venv\Scripts\python -m pytest -q                 # 378 tests, ~5 s, doivent rester verts
 .venv\Scripts\python -m pytest tests/test_career.py -q
 .venv\Scripts\python -m ruff check .              # lint : base propre (0 erreur), doit le rester
+.venv\Scripts\python -m mypy                      # types : base propre (0 erreur), doit le rester
 .venv\Scripts\python -m fsmods_gui                # lancer la GUI (nécessite config.yaml)
-.\packaging\build.ps1                             # build .exe Nuitka -> dist\fsmods-gui.exe
+.\packaging\build.ps1                             # tests + build .exe Nuitka -> dist\fsmods-gui.exe
 ```
+
+Versions figées dans `requirements.lock` (générées depuis `.venv313`). La CI GitHub Actions
+(`.github/workflows/ci.yml`) lance ruff, mypy et pytest sur 3.13 et 3.14 à chaque push.
+Journal de l'appli : `%LOCALAPPDATA%\fs25-profile-switcher\logs\fsmods-gui.log`.
 
 `config.yaml` est local et gitignoré (chemins de l'utilisateur) : ne le lis pas pour le
 committer, ne le modifie pas. Modèle : `config.example.yaml`.
@@ -31,11 +36,13 @@ fsmods_gui/
                    library_autodrive_dir, library_cache_dir, new_mod_source_dirs...
   state.py         AppState : état partagé en mémoire (cfg, catalog, profiles, collections,
                    profil courant) + opérations haut niveau (delete_mods, import_new_mods...)
+  app_logging.py   journal fichier + hooks d'exceptions (l'exe n'a pas de console)
   profiles/        logique pure (stdlib, pas de Qt) : catalog (scan zip + modDesc.xml, cache
                    index.json par (size, mtime_ns)), profile, collection (héritage dynamique),
                    activator (hardlinks NTFS, repli copie), sync_back, inbox, duplicates,
                    dependencies, savegame_audit, log_analyzer, testrunner, config_backup,
-                   autodrive, stats, official_maps (cartes de base/DLC + vignettes)
+                   autodrive, stats, official_maps (cartes de base/DLC + vignettes),
+                   atomic (écritures atomiques : à utiliser pour tout fichier de config)
   career/          système d'objectifs (pur, sans Qt) : stats (extraction savegame XML),
                    farmland_areas (surface des parcelles via le GRLE de la carte),
                    objectives (moteur de règles), templates, store, sync, history, formatting
@@ -57,7 +64,7 @@ fichier**, jamais par chemin absolu.
   la logique. Les opérations longues passent par un worker (`workers.py`), jamais dans le
   thread UI.
 - Style : `from __future__ import annotations`, docstring de module en tête qui explique
-  le *pourquoi*, type hints `X | None`, dataclasses, Python ≥ 3.10. Ruff : ligne 100,
+  le *pourquoi*, type hints `X | None`, dataclasses, Python ≥ 3.11. Ruff : ligne 100,
   règles E,F,I,UP,B,SIM, guillemets doubles.
 - **Textes UI, docstrings de domaine et docs en français** ; identifiants en anglais.
 - Parsing XML de sauvegardes / modDesc : **best-effort**, jamais d'exception qui remonte
@@ -106,6 +113,12 @@ fichier**, jamais par chemin absolu.
   l'y laisser grossir.
 - Nuitka : Python 3.13 (`.venv313`) pour le onefile ; les chemins de plugins Qt sont
   gérés dans `main.py` (`_configure_qt_plugin_paths`) — à retoucher avec précaution.
+- `packaging/build.ps1` doit rester en UTF-8 avec BOM (PowerShell 5.1).
+- Build : tout compiler dans `dist_staging\`. Le cache de zig suit les fichiers `#embed` par
+  chemin : un ancien dossier `*.build` laissé ailleurs lui fait resservir l'ancien code, avec
+  « Build OK » et le nouveau numéro sur l'exe. `packaging/verify_build.py` bloque ce cas.
+- Tests Qt : toujours `QApplication`, jamais `QCoreApplication` (une instance est partagée
+  par toute la session pytest, et les widgets feraient planter le processus).
 - Certains mods de l'utilisateur sont patchés localement (Courseplay, AddableTriggers_LM) ;
   réactiver un profil remplace les zips du dossier mods par ceux de la bibliothèque. Depuis
   0.8.1 la version patchée est déplacée dans `_inbox`, plus perdue, mais elle n'est plus

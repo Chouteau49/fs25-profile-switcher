@@ -8,6 +8,7 @@ from __future__ import annotations
 from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
+    QPersistentModelIndex,
     QRect,
     QSize,
     QSortFilterProxyModel,
@@ -55,6 +56,10 @@ COL_TYPE = 5
 COL_AUTHOR = 6
 
 
+AnyIndex = QModelIndex | QPersistentModelIndex  # what Qt's model API accepts
+_ROOT_INDEX = QModelIndex()
+
+
 def _make_searchable_combo(combo: QComboBox, placeholder: str = "Filtrer…") -> None:
     """Turn a combo into a type-to-filter combo (case-insensitive 'contains').
 
@@ -63,8 +68,10 @@ def _make_searchable_combo(combo: QComboBox, placeholder: str = "Filtrer…") ->
     """
     combo.setEditable(True)
     combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-    combo.lineEdit().setPlaceholderText(placeholder)
+    line_edit = combo.lineEdit()
     completer = combo.completer()
+    assert line_edit is not None and completer is not None  # the combo is editable now
+    line_edit.setPlaceholderText(placeholder)
     completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
     completer.setFilterMode(Qt.MatchFlag.MatchContains)
     completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
@@ -72,7 +79,7 @@ def _make_searchable_combo(combo: QComboBox, placeholder: str = "Filtrer…") ->
     def _snap() -> None:
         # Empty field → back to the "all" item; unknown text → revert to the
         # current valid selection so the box never shows a stale free-text value.
-        text = combo.lineEdit().text().strip()
+        text = line_edit.text().strip()
         if not text:
             combo.setCurrentIndex(0)
             return
@@ -82,7 +89,7 @@ def _make_searchable_combo(combo: QComboBox, placeholder: str = "Filtrer…") ->
         else:
             combo.setEditText(combo.itemText(combo.currentIndex()))
 
-    combo.lineEdit().editingFinished.connect(_snap)
+    line_edit.editingFinished.connect(_snap)
 
 class CatalogTableModel(QAbstractTableModel):
     HEADERS = ("", "Fichier", "Titre", "Version", "Marque", "Catégorie", "Auteur")
@@ -106,11 +113,11 @@ class CatalogTableModel(QAbstractTableModel):
             return self._entries[row]
         return None
 
-    def rowCount(self, parent: QModelIndex | None = None) -> int:
-        return 0 if parent is not None and parent.isValid() else len(self._entries)
+    def rowCount(self, parent: AnyIndex = _ROOT_INDEX) -> int:
+        return 0 if parent.isValid() else len(self._entries)
 
-    def columnCount(self, parent: QModelIndex | None = None) -> int:
-        return 0 if parent is not None and parent.isValid() else len(self.HEADERS)
+    def columnCount(self, parent: AnyIndex = _ROOT_INDEX) -> int:
+        return 0 if parent.isValid() else len(self.HEADERS)
 
     def headerData(
         self,
@@ -125,7 +132,7 @@ class CatalogTableModel(QAbstractTableModel):
             return self.HEADERS[section]
         return None
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
+    def data(self, index: AnyIndex, role: int = Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
 
@@ -207,10 +214,10 @@ class ModCardDelegate(QStyledItemDelegate):
         pix = self._pixmaps[path]
         return pix if not pix.isNull() else None
 
-    def sizeHint(self, option, index: QModelIndex) -> QSize:
+    def sizeHint(self, option, index: AnyIndex) -> QSize:
         return QSize(CARD_W, CARD_H)
 
-    def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
+    def paint(self, painter: QPainter, option, index: AnyIndex) -> None:
         entry = index.data(Qt.ItemDataRole.UserRole)
         if not isinstance(entry, CatalogEntry):
             super().paint(painter, option, index)
@@ -336,7 +343,7 @@ class LibraryFilterProxy(QSortFilterProxyModel):
         self._profile_filter_mode = mode
         self.invalidateFilter()
 
-    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
+    def filterAcceptsRow(self, source_row: int, source_parent: AnyIndex) -> bool:
         model = self.sourceModel()
         if not isinstance(model, CatalogTableModel):
             return True
@@ -540,6 +547,8 @@ class LibraryTable(QWidget):
         types = set()
         for i in range(self.model.rowCount()):
             entry = self.model.entry_at(i)
+            if entry is None:
+                continue
             if entry.brand:
                 brands.add(entry.brand)
             if entry.type:

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from .atomic import atomic_write_text
 from .profile import ProfileError, slugify  # reuse slug + error helpers
 
 COLLECTION_SCHEMA_VERSION = 1
@@ -76,7 +77,7 @@ class Collection:
     def load(cls, path: Path) -> Collection:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
+        except (OSError, ValueError) as exc:  # ValueError: bad JSON or bad encoding
             raise ProfileError(f"{path.name}: invalid JSON ({exc}).") from exc
         return cls.from_dict(data, path=path)
 
@@ -86,17 +87,15 @@ class Collection:
             raise ProfileError("Collection.save() needs a path (or self.path set).")
         if not self.created_at:
             self.created_at = date.today().isoformat()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(self.to_dict(), indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        atomic_write_text(target, json.dumps(self.to_dict(), indent=2, ensure_ascii=False))
         self.path = target
         return target
 
 
-def list_collections(collections_dir: Path) -> list[Collection]:
-    """Load every ``*.json`` collection in ``collections_dir`` (sorted by name)."""
+def list_collections(
+    collections_dir: Path, errors: list[tuple[Path, str]] | None = None
+) -> list[Collection]:
+    """Load every ``*.json`` collection (sorted by name); see :func:`.profile.list_profiles`."""
     if not collections_dir.is_dir():
         return []
     out: list[Collection] = []
@@ -105,8 +104,9 @@ def list_collections(collections_dir: Path) -> list[Collection]:
             continue
         try:
             out.append(Collection.load(p))
-        except ProfileError:
-            continue
+        except ProfileError as exc:
+            if errors is not None:
+                errors.append((p, str(exc)))
     out.sort(key=lambda c: c.name.lower())
     return out
 

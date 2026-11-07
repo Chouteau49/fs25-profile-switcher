@@ -154,3 +154,32 @@ def test_most_recently_played() -> None:
     assert most_recently_played([c]) is None
     c.mark_played()
     assert most_recently_played([a, b, c]) is c
+
+
+# --------------------------------------------------- safe writes, visible damage
+
+
+def test_interrupted_save_keeps_the_previous_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fsmods_gui.profiles import atomic
+
+    path = Profile(name="Before", mods=["A.zip"]).save(tmp_path / "p.json")
+
+    def crash(*_args: object) -> None:
+        raise OSError("coupure")
+
+    monkeypatch.setattr(atomic.os, "fsync", crash)
+    with pytest.raises(OSError):
+        Profile(name="After").save(path)
+    assert Profile.load(path).name == "Before"
+
+
+def test_damaged_profiles_are_reported_not_silently_dropped(tmp_path: Path) -> None:
+    Profile(name="Good").save(tmp_path / "good.json")
+    (tmp_path / "cut.json").write_text('{"name": "Ha', encoding="utf-8")
+    (tmp_path / "binary.json").write_bytes(bytes([0xFF, 0xFE, 0x00, 0xD8]))
+    errors: list = []
+    assert [p.name for p in list_profiles(tmp_path, errors=errors)] == ["Good"]
+    assert sorted(path.name for path, _reason in errors) == ["binary.json", "cut.json"]
+    assert [p.name for p in list_profiles(tmp_path)] == ["Good"]  # errors stays optional

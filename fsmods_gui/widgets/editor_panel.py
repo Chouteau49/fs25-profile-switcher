@@ -238,7 +238,7 @@ class EditorPanel(QWidget):
         self.map_icon.setVisible(is_profile)
         self._coll_box.setVisible(is_profile)
 
-        if is_profile:
+        if isinstance(target, Profile):
             block_map = self.map_combo.blockSignals(True)
             self._select_map_in_combo(_map_key(target))
             self.map_combo.blockSignals(block_map)
@@ -434,6 +434,8 @@ class EditorPanel(QWidget):
 
     def _add_to_collection(self, entries: list[CatalogEntry]) -> None:
         col = self._target
+        if not isinstance(col, Collection):
+            return
         maps_skipped = 0
         changed = False
         for entry in entries:
@@ -456,6 +458,8 @@ class EditorPanel(QWidget):
 
     def _add_to_profile(self, entries: list[CatalogEntry]) -> None:
         prof = self._target
+        if not isinstance(prof, Profile):
+            return
         changed = False
         map_changed = False
         added: list[str] = []

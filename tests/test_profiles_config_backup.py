@@ -315,3 +315,34 @@ def test_unreadable_json_in_the_archive_writes_nothing(tmp_path: Path) -> None:
         _assert_untouched(profiles, collections)
         assert (profiles / "keep.json").read_text(encoding="utf-8") == '{"name":"Keep"}'
         assert not (profiles / "good.json").exists()
+
+
+# ----------------------------------------- a damaged file never reaches the backup
+
+
+def test_mirror_keeps_the_good_copy_of_a_damaged_file(tmp_path: Path) -> None:
+    profiles, collections = _dirs(tmp_path)
+    (profiles / "a.json").write_text('{"name":"A"}', encoding="utf-8")
+    (profiles / "b.json").write_text('{"name":"B"}', encoding="utf-8")
+    backup = tmp_path / "backup"
+    mirror_config(profiles, collections, backup)
+
+    (profiles / "a.json").write_text('{"name":"A', encoding="utf-8")  # cut by a crash
+    (profiles / "b.json").write_text('{"name":"B2"}', encoding="utf-8")
+    result = mirror_config(profiles, collections, backup)
+
+    assert (backup / "profiles" / "a.json").read_text(encoding="utf-8") == '{"name":"A"}'
+    assert (backup / "profiles" / "b.json").read_text(encoding="utf-8") == '{"name":"B2"}'
+    assert any("a.json" in w for w in result.warnings)
+    assert result.pruned == 0
+
+
+def test_a_snapshot_stays_restorable_with_a_damaged_file(tmp_path: Path) -> None:
+    profiles, collections = _dirs(tmp_path)
+    (profiles / "good.json").write_text('{"name":"Good"}', encoding="utf-8")
+    (profiles / "cut.json").write_text('{"na', encoding="utf-8")
+    archive = export_config(profiles, collections, tmp_path / "s.zip")
+
+    p2, c2 = _dirs(tmp_path / "restore")
+    result = import_config(archive, p2, c2, mode=MODE_REPLACE)
+    assert result.profiles_imported == 1 and (p2 / "good.json").is_file()

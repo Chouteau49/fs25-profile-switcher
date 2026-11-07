@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.13 : le Python de l'exe compilé. 3.14 : celui du poste de développement.
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Dépendances
+        run: |
+          python -m pip install -r requirements.lock
+          python -m pip install --no-deps -e .
+      - name: Lint
+        run: python -m ruff check .
+      - name: Types
+        run: python -m mypy
+      - name: Tests
+        run: python -m pytest -q

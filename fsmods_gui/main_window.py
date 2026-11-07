@@ -5,10 +5,12 @@ passive: they read state via setters, emit signals on user actions.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QByteArray, QSettings, QSize, Qt, QThread, QTimer
-from PySide6.QtGui import QAction, QIcon, QPixmap
+from PySide6.QtCore import QByteArray, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -31,13 +33,14 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
-from .profiles.activator import ActivationReport
+from .app_logging import default_log_dir, set_error_listener
+from .profiles.activator import ActivationReport, game_process_running
 from .profiles.sync_back import (
     add_to_profile,
     compute_diff,
     import_into_library,
     remove_from_profile,
-    snapshot_hashes,
+    snapshot_fingerprints,
 )
 from .state import AppState
 from .widgets.editor_panel import EditorPanel
@@ -58,11 +61,22 @@ from .workers import (
     make_worker_thread,
 )
 
+if TYPE_CHECKING:
+    from .profiles.profile import Profile
+    from .widgets.testrunner_dialog import TestRunnerPanel
+
+log = logging.getLogger(__name__)
+
 
 class MainWindow(QMainWindow):
+    # Uncaught errors can come from any thread: a signal brings them back to the GUI.
+    internal_error = Signal()
+
     def __init__(self, state: AppState) -> None:
         super().__init__()
         self.state = state
+        self.internal_error.connect(self._on_internal_error)
+        set_error_listener(self.internal_error.emit)
         self.setWindowTitle(f"FS Profile Switcher v{__version__} — {state.game_key}")
         self.resize(1200, 720)
 
@@ -201,6 +215,10 @@ class MainWindow(QMainWindow):
         import_action = QAction("📥 Importer config", self)
         import_action.triggered.connect(self._on_import_config)
         toolbar.addAction(import_action)
+        log_action = QAction("📝 Journal de l'appli", self)
+        log_action.setToolTip("Ouvre le dossier des journaux (erreurs internes, plantages).")
+        log_action.triggered.connect(self._on_open_log_dir)
+        toolbar.addAction(log_action)
         toolbar.addSeparator()
         version_action = QAction(f"Version {__version__}", self)
         version_action.setEnabled(False)
@@ -210,12 +228,12 @@ class MainWindow(QMainWindow):
         self._scan_thread: QThread | None = None
         self._scan_worker: ScanWorker | None = None
         self._activate_thread: QThread | None = None
-        self._activating_profile = None
+        self._activating_profile: Profile | None = None
         self._activate_worker: ActivateWorker | None = None
         self._progress: QProgressDialog | None = None
         self._testrunner_thread: QThread | None = None
         self._testrunner_worker: TestRunnerWorker | None = None
-        self._testrunner_panel = None
+        self._testrunner_panel: TestRunnerPanel | None = None
 
         self._backup_thread: QThread | None = None
         self._backup_worker: ConfigBackupWorker | None = None
@@ -229,7 +247,7 @@ class MainWindow(QMainWindow):
         self._watcher.started.connect(self._on_game_started)
         self._watcher.stopped.connect(self._on_game_stopped)
         self._watching_for_profile: str | None = None
-        self._watching_hashes: dict[str, str] = {}
+        self._watching_baseline: dict[str, str] = {}
 
         # ---- initial load
         self._refresh_profiles_ui()
@@ -243,22 +261,16 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         QSettings().setValue("mainWindow/geometry", self.saveGeometry())
-        # Stop watcher timer
-        try:
-            if hasattr(self, "_watcher") and self._watcher is not None:
-                self._watcher.stop()
-        except Exception:
-            pass
+        set_error_listener(None)
+        self._watcher.stop()
 
         # Gracefully stop background threads so Qt doesn't warn on exit
         for attr in ("_scan_thread", "_activate_thread", "_testrunner_thread", "_backup_thread"):
             thread = getattr(self, attr, None)
-            try:
-                if thread is not None and isinstance(thread, QThread) and thread.isRunning():
-                    thread.quit()
-                    thread.wait(3000)  # wait up to 3s
-            except Exception:
-                pass
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                if not thread.wait(3000):
+                    log.warning("Thread encore actif à la fermeture : %s", attr)
 
         super().closeEvent(event)
 
@@ -289,6 +301,8 @@ class MainWindow(QMainWindow):
         if isinstance(reports, list) and reports:
             text = summarize_reports(reports)
             self.statusBar().showMessage(text, 10000)
+            if any(not r.ok or r.warnings for r in reports):
+                log.warning(text)
             if any(not r.ok for r in reports):
                 self.statusBar().setToolTip(text)
         if self._backup_pending:
@@ -297,6 +311,16 @@ class MainWindow(QMainWindow):
 
     def _status(self, msg: str) -> None:
         self.statusBar().showMessage(msg, 5000)
+
+    def _on_internal_error(self) -> None:
+        self.statusBar().showMessage(
+            "⚠ Erreur interne : détails dans 📝 Journal de l'appli.", 15000
+        )
+
+    def _on_open_log_dir(self) -> None:
+        folder = default_log_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     # ====================================================== feature tabs
 
@@ -309,9 +333,12 @@ class MainWindow(QMainWindow):
     def _set_tab_content(self, index: int, widget: QWidget) -> None:
         """Replace a feature tab's content with a freshly built panel."""
         container = self.tabs.widget(index)
-        layout = container.layout()
+        layout = container.layout() if container is not None else None
+        if layout is None:
+            return
         while layout.count():
-            old = layout.takeAt(0).widget()
+            item = layout.takeAt(0)
+            old = item.widget() if item is not None else None
             if old is not None:
                 old.deleteLater()
         layout.addWidget(widget)
@@ -410,13 +437,13 @@ class MainWindow(QMainWindow):
             career, report = self._sync_career(profile)
         except CareerError as exc:
             return QLabel(f"Données de carrière illisibles :\n{exc}")
-        if career is None:
+        dirs = self._career_dir_and_user_dir(profile)
+        if career is None or dirs is None:
             return QLabel("Jeu ou bibliothèque non configuré.")
-        user_dir = self._career_dir_and_user_dir(profile)[1]
         panel = CareerPanel(
             profile.name,
             career,
-            user_dir,
+            dirs[1],
             report,
             install_dir=self._game_install_dir(),
             library_mods_dir=self._library_mods_dir(),
@@ -716,32 +743,6 @@ class MainWindow(QMainWindow):
             return str(thumb) if thumb else None
         return None
 
-    def _detect_official_maps(self) -> None:
-        """Give a map-less profile its official map, from its career's savegame.
-
-        E.g. a "Kinlaig" profile (DLC map, no map mod) linked to a Kinlaig savegame
-        gets ``official_map`` so its thumbnail shows. Never overrides a chosen map.
-        """
-        from .career.stats import savegame_map_id
-        from .career.store import Career, CareerError
-        from .profiles.official_maps import official_map
-
-        for prof in self.state.profiles:
-            if prof.map_mod or prof.official_map or prof.path is None:
-                continue
-            dirs = self._career_dir_and_user_dir(prof)
-            if dirs is None:
-                return
-            career_dir, user_dir = dirs
-            try:
-                savegame = Career.load(career_dir).settings.savegame
-            except CareerError:
-                continue
-            found = official_map(savegame_map_id(user_dir / savegame)) if savegame else None
-            if found is not None:
-                prof.official_map = found.map_id
-                prof.save()
-
     def _refresh_profiles_ui(self) -> None:
         self.profile_list.blockSignals(True)
         self.profile_list.clear()
@@ -895,7 +896,8 @@ class MainWindow(QMainWindow):
         confirm = QMessageBox.question(
             self,
             "Supprimer",
-            f"Supprimer définitivement le profil « {prof.name} » ?",
+            f"Supprimer définitivement le profil « {prof.name} » et sa carrière "
+            "(objectifs, surfaces saisies) ?",
         )
         if confirm != QMessageBox.StandardButton.Yes:
             return
@@ -1209,9 +1211,30 @@ class MainWindow(QMainWindow):
         self.editor.set_collections(self.state.collections)
         self._refresh_collections_ui()
         self.state.refresh_profiles()
-        self._detect_official_maps()
+        self.state.detect_official_maps()
         self._refresh_profiles_ui()
         self._status(f"Bibliothèque : {len(catalog)} mods")
+        self._warn_broken_configs()
+
+    def _warn_broken_configs(self) -> None:
+        broken = self.state.broken_configs
+        if not broken:
+            return
+        for path, reason in broken:
+            log.error("Fichier de config illisible : %s (%s)", path, reason)
+        names = "\n".join(f"• {path.name}" for path, _reason in broken[:10])
+        targets = self.state.game.backup_targets
+        hint = (
+            f"\n\nUne copie saine se trouve sans doute dans {targets[0]}."
+            if targets
+            else ""
+        )
+        QMessageBox.warning(
+            self,
+            "Fichiers illisibles",
+            f"{len(broken)} fichier(s) de config n'ont pas pu être lus et sont ignorés :\n"
+            f"{names}{hint}",
+        )
 
     def _on_scan_failed(self, message: str) -> None:
         QMessageBox.warning(self, "Scan échoué", message)
@@ -1445,6 +1468,14 @@ class MainWindow(QMainWindow):
         if self.state.current_profile is None:
             QMessageBox.information(self, "Aucun profil", "Sélectionne un profil.")
             return
+        if game_process_running(self.state.game_key):
+            QMessageBox.warning(
+                self,
+                "Jeu en cours",
+                "Farming Simulator est lancé : ses mods sont utilisés.\n"
+                "Ferme le jeu, puis active le profil.",
+            )
+            return
         if self.state.catalog is None:
             QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
             return
@@ -1507,6 +1538,15 @@ class MainWindow(QMainWindow):
             self._progress = None
         if not isinstance(report, ActivationReport):
             return
+        log.info(
+            "Activation de %s : %d activés, %d mis à l'abri, %d manquants, %d erreurs",
+            report.profile_name, len(report.activated), len(report.rescued),
+            len(report.missing), len(report.errors),
+        )
+        for path in report.rescued:
+            log.info("Mis à l'abri : %s", path)
+        for name, message in report.errors:
+            log.error("Activation, %s : %s", name, message)
         played = self._activating_profile
         if played is not None and played.path is not None and not report.errors:
             played.mark_played()  # the app reopens on this profile next time
@@ -1539,7 +1579,7 @@ class MainWindow(QMainWindow):
             )
         if launched and self.state.current_profile is not None:
             self._watching_for_profile = self.state.current_profile.slug
-            self._watching_hashes = snapshot_hashes(
+            self._watching_baseline = snapshot_fingerprints(
                 self.state.game.mods_dir,
                 self.state.effective_filenames(self.state.current_profile),
             )
@@ -1606,16 +1646,16 @@ class MainWindow(QMainWindow):
         )
         self._watching_for_profile = None
         if profile is None:
-            self._watching_hashes = {}
+            self._watching_baseline = {}
             return
         diff = compute_diff(
             profile,
             self.state.game,
             self.state.catalog,
-            baseline_hashes=self._watching_hashes,
+            baseline=self._watching_baseline,
             effective=self.state.effective_filenames(profile),
         )
-        self._watching_hashes = {}
+        self._watching_baseline = {}
         if not diff.has_changes:
             self._status("Aucune différence détectée après la partie.")
             return
@@ -1638,13 +1678,16 @@ class MainWindow(QMainWindow):
         updated: dict[str, str],
         removed: dict[str, str],
     ) -> None:
+        catalog = self.state.catalog
+        if catalog is None:
+            return
         changed = False
         errors: list[str] = []
         for fname, action in added.items():
             if action == ADD_IGNORE:
                 continue
             try:
-                import_into_library(fname, self.state.game, self.state.catalog)
+                import_into_library(fname, self.state.game, catalog)
             except (OSError, ValueError) as exc:
                 errors.append(f"{fname}: {exc}")
                 continue
@@ -1657,7 +1700,7 @@ class MainWindow(QMainWindow):
             if action == UPDATE_IGNORE:
                 continue
             try:
-                import_into_library(fname, self.state.game, self.state.catalog)
+                import_into_library(fname, self.state.game, catalog)
             except (OSError, ValueError) as exc:
                 errors.append(f"{fname}: {exc}")
         for fname, action in removed.items():
@@ -1672,7 +1715,7 @@ class MainWindow(QMainWindow):
         )
         if any_imported and self.state.game.library_cache_dir:
             cache_path = self.state.game.library_cache_dir / "index.json"
-            self.state.catalog.save_cache(cache_path)
+            catalog.save_cache(cache_path)
         
         if changed:
             profile.save()

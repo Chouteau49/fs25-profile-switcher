@@ -64,8 +64,6 @@ def test_load_expands_user_and_defaults(tmp_path: Path) -> None:
     cfg = cfgmod.load(p)
     assert cfg.profile("fs25").mods_dir == Path("~/fsmods").expanduser()
     assert cfg.default_game == "fs25"
-    assert cfg.pull_overwrite is False
-    assert cfg.push_overwrite is True
 
 
 def test_load_reads_multi_game_and_overrides(tmp_path: Path) -> None:
@@ -84,9 +82,7 @@ def test_load_reads_multi_game_and_overrides(tmp_path: Path) -> None:
     assert set(cfg.games) == {"fs25", "fs22"}
     assert cfg.default_game == "fs22"
     assert cfg.profile().mods_dir == Path("/tmp/fs22")
-    assert cfg.profile("fs25").mods_dir == Path("/tmp/fs25")
-    assert cfg.pull_overwrite is True
-    assert cfg.push_overwrite is False
+    assert cfg.profile("fs25").mods_dir == Path("/tmp/fs25")  # old overwrite keys: ignored
 
 
 def test_default_game_falls_back_to_first(tmp_path: Path) -> None:

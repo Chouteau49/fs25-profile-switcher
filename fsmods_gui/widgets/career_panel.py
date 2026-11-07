@@ -200,8 +200,8 @@ class CareerPanel(QWidget):
             self.status_filter.addItem(label, userData=key)
         self.diff_filter = QComboBox(self)
         self.diff_filter.addItem("Toutes difficultés", userData=0)
-        for key, label in DIFFICULTY_LABELS_FR.items():
-            self.diff_filter.addItem(label, userData=key)
+        for level, label in DIFFICULTY_LABELS_FR.items():
+            self.diff_filter.addItem(label, userData=level)
         for combo in (self.cat_filter, self.status_filter, self.diff_filter, self.farm_filter):
             combo.currentIndexChanged.connect(self._fill_table)
         filters = QHBoxLayout()
@@ -217,7 +217,9 @@ class CareerPanel(QWidget):
             ["Statut", "Objectif", "Ferme", "Catégorie", "Difficulté", "Progression",
              "Actuel / cible", "Récompense", "💰 Versé"]
         )
-        self.table.horizontalHeaderItem(_COL_PAID).setToolTip(
+        paid_header = self.table.horizontalHeaderItem(_COL_PAID)
+        assert paid_header is not None  # created by setHorizontalHeaderLabels
+        paid_header.setToolTip(
             "Coche quand tu as ajouté l'argent de la récompense sur ta ferme "
             "(PowerTools, F12). Disponible une fois l'objectif terminé."
         )
@@ -321,9 +323,10 @@ class CareerPanel(QWidget):
 
     def _fill_cards(self) -> None:
         while self.cards_grid.count():
-            item = self.cards_grid.takeAt(0).widget()
-            if item is not None:
-                item.deleteLater()
+            item = self.cards_grid.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.deleteLater()
         snapshot = self._career.snapshot
         farm = snapshot.farm_name or (f"ferme {snapshot.farm_id}" if snapshot.farm_id else "")
         self.cards_box.setTitle(f"Tableau de bord — {farm}" if farm else "Tableau de bord")
@@ -376,8 +379,9 @@ class CareerPanel(QWidget):
     def _fill_rewards(self) -> None:
         while self.rewards_layout.count():
             item = self.rewards_layout.takeAt(0)
-            if item.layout() is not None:
-                self._clear_layout(item.layout())
+            sub_layout = item.layout() if item is not None else None
+            if sub_layout is not None:
+                self._clear_layout(sub_layout)
         pending = [o for o in self._career.objectives if o.reward_state == RW_PENDING]
         self.rewards_box.setVisible(rewards_enabled(self._career.settings.mode) and bool(pending))
         for obj in pending:

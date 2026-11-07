@@ -27,6 +27,8 @@ from ..config import Config, GameProfile
 from .catalog import Catalog
 from .profile import Profile
 
+_PROCESS_MARKERS = {"fs25": "farmingsimulator2025", "fs22": "farmingsimulator2022"}
+
 
 @dataclass
 class ModActivation:
@@ -68,11 +70,13 @@ def _safe_link_or_copy(src: Path, dst: Path) -> str:
         return "copy"
 
 
-def _same_content(a: Path, b: Path) -> bool:
+def same_content(a: Path, b: Path) -> bool:
     """True when both paths hold the same bytes; a missing file means False.
 
     Hardlinks and ``copy2`` copies (same size + mtime) are recognised without
-    reading them: a whole profile weighs several GB.
+    reading them: a whole profile weighs several GB. A file edited while keeping both
+    its exact size and its exact timestamp would pass for identical: accepted, as
+    reading every copied mod on each activation is the alternative.
     """
     try:
         if os.path.samefile(a, b):
@@ -98,7 +102,7 @@ def mods_at_risk(mods_dir: Path, library_mods_dir: Path) -> list[Path]:
         for entry in sorted(mods_dir.iterdir())
         if entry.is_file()
         and entry.suffix.lower() == ".zip"
-        and not _same_content(entry, library_mods_dir / entry.name)
+        and not same_content(entry, library_mods_dir / entry.name)
     ]
 
 
@@ -111,7 +115,7 @@ def rescue_mod(zip_path: Path, rescue_dir: Path) -> Path:
     rescue_dir.mkdir(parents=True, exist_ok=True)
     target = rescue_dir / zip_path.name
     if target.exists():
-        if _same_content(zip_path, target):
+        if same_content(zip_path, target):
             zip_path.unlink()
             return target
         target = rescue_dir / f"mis-de-cote-{datetime.now():%Y%m%d-%H%M%S}" / zip_path.name
@@ -207,6 +211,24 @@ def activate_profile(
 
     cb(total, total, "Activation terminée")
     return report
+
+
+def game_process_running(game_key: str | None = None) -> bool:
+    """True when Farming Simulator runs; with ``game_key``, that game's version only.
+
+    The real process is ``FarmingSimulator2025Game.exe``, started by the launcher
+    ``FarmingSimulator2025.exe``. Without psutil the answer is False: never blocking.
+    """
+    try:
+        import psutil  # local import: keeps this module importable without psutil
+    except ImportError:
+        return False
+    marker = _PROCESS_MARKERS.get(game_key or "", "farmingsimulator")
+    for process in psutil.process_iter(["name"]):
+        name = (process.info.get("name") or "").lower()
+        if marker in name and name.endswith(".exe"):
+            return True
+    return False
 
 
 def launch_game(game_profile: GameProfile) -> bool:

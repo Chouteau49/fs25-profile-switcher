@@ -201,3 +201,90 @@ def test_first_load_selects_last_played_profile(tmp_path: Path) -> None:
     state.current_profile = state.profiles[0]
     state.refresh_profiles()
     assert state.current_profile.name == "Alpha"
+
+
+def test_damaged_config_files_are_kept_for_the_gui(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    profiles = state.game.library_profiles_dir
+    Profile(name="Good").save(profiles / "good.json")
+    (profiles / "cut.json").write_text('{"name": "Ha', encoding="utf-8")
+    collections = state.game.library_collections_dir
+    collections.mkdir(parents=True, exist_ok=True)
+    (collections / "bad.json").write_text("{", encoding="utf-8")
+
+    state.refresh_profiles()
+    state.refresh_collections()
+
+    assert sorted(p.name for p, _reason in state.broken_configs) == ["bad.json", "cut.json"]
+    (profiles / "cut.json").unlink()
+    state.refresh_profiles()
+    assert [p.name for p, _reason in state.broken_configs] == ["bad.json"]
+
+
+# ------------------------------------------------- careers follow their profile
+
+
+def _career_on_map(state: AppState, slug: str, map_id: str) -> None:
+    """A career of ``slug`` linked to a savegame played on ``map_id``."""
+    user_dir = state.game.mods_dir.parent
+    savegame = user_dir / f"save-{slug}"
+    savegame.mkdir(parents=True)
+    (savegame / "careerSavegame.xml").write_text(
+        f"<careerSavegame><settings><mapId>{map_id}</mapId></settings></careerSavegame>",
+        encoding="utf-8",
+    )
+    career = state.game.library_careers_dir / slug
+    career.mkdir(parents=True)
+    (career / "career.json").write_text(
+        '{"savegame": "' + savegame.name + '"}', encoding="utf-8"
+    )
+
+
+def test_deleting_a_profile_removes_its_career_only(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    profiles = state.game.library_profiles_dir
+    Profile(name="Gone").save(profiles / "gone.json")
+    Profile(name="Kept").save(profiles / "kept.json")
+    state.refresh_profiles()
+    _career_on_map(state, "gone", "MapUS")
+    _career_on_map(state, "kept", "MapEU")
+
+    state.delete_profile(next(p for p in state.profiles if p.name == "Gone"))
+
+    assert not (state.game.library_careers_dir / "gone").exists()
+    assert (state.game.library_careers_dir / "kept" / "career.json").is_file()
+
+
+def test_deleting_a_profile_without_career_works(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    Profile(name="Solo").save(state.game.library_profiles_dir / "solo.json")
+    state.refresh_profiles()
+    state.delete_profile(state.profiles[0])
+    assert state.profiles == []
+
+
+def test_official_map_detected_from_the_career_savegame(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    profiles = state.game.library_profiles_dir
+    kinlaig = "pdlc_highlandsFishingPack.HighlandsFishingMap"
+    Profile(name="Kinlaig").save(profiles / "kinlaig.json")
+    Profile(name="Modded", map_mod="FS25_Map.zip").save(profiles / "modded.json")
+    Profile(name="Chosen", official_map="MapEU").save(profiles / "chosen.json")
+    Profile(name="Custom").save(profiles / "custom.json")
+    Profile(name="Nothing").save(profiles / "nothing.json")
+    state.refresh_profiles()
+    for slug in ("kinlaig", "modded", "chosen"):
+        _career_on_map(state, slug, kinlaig)
+    _career_on_map(state, "custom", "FS25_Other.Map")
+
+    state.detect_official_maps()
+
+    found = {p.name: p.official_map for p in state.profiles}
+    assert found == {
+        "Kinlaig": kinlaig,  # saved, so the thumbnail is there on the next start
+        "Modded": None,
+        "Chosen": "MapEU",  # a chosen map is never overridden
+        "Custom": None,
+        "Nothing": None,
+    }
+    assert Profile.load(profiles / "kinlaig.json").official_map == kinlaig

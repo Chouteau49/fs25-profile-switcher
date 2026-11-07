@@ -279,3 +279,36 @@ def test_activation_aborts_before_wiping_if_a_mod_cannot_be_kept(
     assert (gp.mods_dir / "Locked.zip").read_bytes() == b"used by the running game"
     assert (gp.mods_dir / "Other.zip").is_file()
     assert report.removed == [] and report.activated == []
+
+
+# ----------------------------------------------------------- game still running
+
+
+class _FakeProcess:
+    def __init__(self, name: str | None) -> None:
+        self.info = {"name": name}
+
+
+@pytest.mark.parametrize(
+    ("running", "game", "expected"),
+    [
+        (["explorer.exe", "FarmingSimulator2025Game.exe"], "fs25", True),  # real process name
+        (["FarmingSimulator2025.exe"], "fs25", True),
+        (["FarmingSimulator2022Game.exe"], "fs25", False),  # another game, another folder
+        (["FarmingSimulator2022Game.exe"], "fs22", True),
+        (["FarmingSimulator2022Game.exe"], None, True),
+        (["explorer.exe", None], "fs25", False),  # protected process: no name
+        ([], "fs25", False),
+    ],
+)
+def test_game_process_running(
+    monkeypatch: pytest.MonkeyPatch, running: list, game: str | None, expected: bool
+) -> None:
+    import psutil
+
+    from fsmods_gui.profiles.activator import game_process_running
+
+    monkeypatch.setattr(
+        psutil, "process_iter", lambda _attrs: [_FakeProcess(n) for n in running]
+    )
+    assert game_process_running(game) is expected
