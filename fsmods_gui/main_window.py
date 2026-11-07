@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         self._scan_thread: QThread | None = None
         self._scan_worker: ScanWorker | None = None
         self._activate_thread: QThread | None = None
+        self._activating_profile = None
         self._activate_worker: ActivateWorker | None = None
         self._progress: QProgressDialog | None = None
         self._testrunner_thread: QThread | None = None
@@ -1506,8 +1507,8 @@ class MainWindow(QMainWindow):
             self._progress = None
         if not isinstance(report, ActivationReport):
             return
-        played = getattr(self, "_activating_profile", None)
-        if played is not None and played.path is not None:
+        played = self._activating_profile
+        if played is not None and played.path is not None and not report.errors:
             played.mark_played()  # the app reopens on this profile next time
             played.save()
             self._request_backup()
@@ -1518,9 +1519,18 @@ class MainWindow(QMainWindow):
         )
         if report.missing:
             summary += f"\n⚠ {len(report.missing)} manquant(s) ignoré(s)."
+        if report.rescued:
+            names = ", ".join(p.name for p in report.rescued[:5])
+            more = f" (+{len(report.rescued) - 5})" if len(report.rescued) > 5 else ""
+            summary += (
+                f"\n\n📥 {len(report.rescued)} mod(s) du dossier du jeu absent(s) de la "
+                f"bibliothèque ou différent(s) ont été mis à l'abri : {names}{more}.\n"
+                f"Dossier : {report.rescued[0].parent}\n"
+                "« Nouveaux mods » te proposera de les importer."
+            )
         if report.errors:
             errs = "\n".join(f"{name}: {msg}" for name, msg in report.errors[:5])
-            QMessageBox.warning(self, "Activation : erreurs", errs)
+            QMessageBox.warning(self, "Activation : erreurs", f"{errs}\n\n{summary}")
         else:
             QMessageBox.information(
                 self,
@@ -1603,6 +1613,7 @@ class MainWindow(QMainWindow):
             self.state.game,
             self.state.catalog,
             baseline_hashes=self._watching_hashes,
+            effective=self.state.effective_filenames(profile),
         )
         self._watching_hashes = {}
         if not diff.has_changes:
@@ -1634,7 +1645,7 @@ class MainWindow(QMainWindow):
                 continue
             try:
                 import_into_library(fname, self.state.game, self.state.catalog)
-            except (FileNotFoundError, ValueError) as exc:
+            except (OSError, ValueError) as exc:
                 errors.append(f"{fname}: {exc}")
                 continue
             if action == ADD_LIB_AND_PROFILE:
@@ -1647,7 +1658,7 @@ class MainWindow(QMainWindow):
                 continue
             try:
                 import_into_library(fname, self.state.game, self.state.catalog)
-            except (FileNotFoundError, ValueError) as exc:
+            except (OSError, ValueError) as exc:
                 errors.append(f"{fname}: {exc}")
         for fname, action in removed.items():
             if action == REMOVE_DROP and remove_from_profile(profile, fname):

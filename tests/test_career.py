@@ -814,3 +814,122 @@ def test_guess_savegame_for_official_map(tmp_path: Path) -> None:
     assert found == "savegame1"
     assert guess_savegame(None, tmp_path, "MapUS") == ""
     assert guess_savegame(None, tmp_path) == ""
+
+
+# ------------------------------------------------- incomplete parcel areas
+
+
+def test_parse_area_reads_what_a_player_types() -> None:
+    from fsmods_gui.career.formatting import parse_area
+
+    assert parse_area("2,05") == 2.05
+    assert parse_area("2.05") == 2.05
+    assert parse_area(" 2,05 ha ") == 2.05
+    assert parse_area("1 234,5") == 1234.5
+    assert parse_area("0") == 0.0
+    assert parse_area("") is None
+    assert parse_area("   ") is None
+    for bad in ("abc", "-1", "nan", "inf", "1,2,3"):
+        with pytest.raises(ValueError):
+            parse_area(bad)
+
+
+def test_incomplete_area_is_shown_as_a_minimum_never_as_a_value(tmp_path: Path) -> None:
+    from fsmods_gui.career.formatting import format_stat
+
+    dlc = "pdlc_highlandsFishingPack.HighlandsFishingMap"
+    sg = _land_save(tmp_path, dlc)
+    s = extract_stats(sg, parcel_areas={dlc: {"1": 4.5}})
+    stat = s.get("land.area")
+    assert stat.value is None and stat.quality == Q_NA and stat.partial == 4.5
+    assert format_stat(stat) == "≥ 4,5 ha"
+    assert "n° 2" in stat.note
+    # objectives keep ignoring it: a minimum cannot prove "<= 3 ha" or complete anything
+    assert evaluate(leaf("land.area", 1), s).satisfied is None
+    again = StatsSnapshot.from_dict(json.loads(json.dumps(s.to_dict())))
+    assert again.get("land.area").partial == 4.5
+    nothing = extract_stats(sg).get("land.area")
+    assert nothing.partial is None and format_stat(nothing) == "—"
+
+
+def test_parcel_declared_at_zero_completes_the_total(tmp_path: Path) -> None:
+    dlc = "pdlc_highlandsFishingPack.HighlandsFishingMap"
+    sg = _land_save(tmp_path, dlc)
+    assert extract_stats(sg, parcel_areas={dlc: {"1": 4.5, "2": 0.0}}).value("land.area") == 4.5
+
+
+def test_sync_names_the_parcels_left_and_shows_the_minimum(tmp_path: Path) -> None:
+    user = tmp_path / "user"
+    dlc = "pdlc_highlandsFishingPack.HighlandsFishingMap"
+    _land_save(user, dlc)
+    career = Career(directory=tmp_path / "career")
+    career.settings.savegame = "savegame1"
+    career.settings.parcel_areas = {dlc: {"1": 4.5}}
+    report = sync_career(career, user)
+    assert "1 parcelle(s) sans surface : n° 2" in report.message
+    assert any(line.startswith("≥ 4,5 ha") for line in report.detected)
+    career.settings.manual_stats = {"land.area": 9.0}  # a typed total settles it
+    assert "sans surface" not in sync_career(career, user).message
+
+
+# ------------------------------------------- changing the tracked farm
+
+
+def _two_farm_career(tmp_path: Path, objectives: list[Objective]) -> tuple[Career, Path]:
+    user = tmp_path / "user"
+    make_save(user)  # farm 1: 742 000 €, farm 2: 5 €
+    career = Career(directory=tmp_path / "career")
+    career.settings.savegame = "savegame1"
+    career.settings.farm = "2"
+    career.objectives = objectives
+    sync_career(career, user)
+    return career, user
+
+
+def test_looking_at_a_richer_farm_completes_nothing(tmp_path: Path) -> None:
+    goal = obj("m", leaf("money", 100_000), reward=Reward(money=50_000))
+    career, user = _two_farm_career(tmp_path, [goal])
+    assert goal.status != ST_COMPLETED
+
+    assert career.set_tracked_farm("1") == 1
+    sync_career(career, user)
+
+    assert career.snapshot.farm_id == "1"
+    assert goal.farm == "2"  # stays on the farm it was measured on
+    assert goal.status != ST_COMPLETED and goal.reward_state != RW_PENDING
+    assert goal.current_value == 5
+
+
+def test_changing_farm_keeps_explicit_objectives_and_manual_values(tmp_path: Path) -> None:
+    bound = obj("b", leaf("money", 1), farm="1")
+    career, _user = _two_farm_career(tmp_path, [bound])
+    career.settings.manual_stats = {"vine.area": 3.0, "1|olive.area": 7.0}
+
+    assert career.set_tracked_farm("1") == 0  # already explicit
+    assert bound.farm == "1"
+    assert career.settings.manual_stats == {"2|vine.area": 3.0, "1|olive.area": 7.0}
+    assert career.settings.manual_for("1", "1") == {"olive.area": 7.0}
+    assert career.settings.manual_for("2", "1") == {"vine.area": 3.0}
+
+
+def test_selecting_the_same_farm_pins_nothing(tmp_path: Path) -> None:
+    goal = obj("m", leaf("money", 100_000))
+    career, _user = _two_farm_career(tmp_path, [goal])
+    assert career.set_tracked_farm("2") == 0
+    assert goal.farm == ""
+
+
+def test_history_is_kept_per_farm(tmp_path: Path) -> None:
+    from fsmods_gui.career.history import series
+
+    career, user = _two_farm_career(tmp_path, [])
+    career.set_tracked_farm("1")
+    sync_career(career, user)
+    career.set_tracked_farm("2")
+    sync_career(career, user)  # same values as the first farm-2 entry: nothing new
+
+    assert [h["farm"] for h in career.history] == ["2", "1"]
+    assert [v for _t, v in series(career.history, "money", "1")] == [742000.0]
+    assert [v for _t, v in series(career.history, "money", "2")] == [5.0]
+    legacy = [{"t": "2026-01-01T10:00:00", "values": {"money": 9}}]
+    assert [v for _t, v in series(legacy, "money", "2")] == [9.0]  # older entries stay visible

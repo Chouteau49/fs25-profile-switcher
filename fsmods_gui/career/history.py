@@ -17,10 +17,18 @@ CHART_SERIES: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def series(history: list[dict], key: str) -> list[tuple[datetime, float]]:
-    """Chronological ``(time, value)`` points for one statistic; bad entries are skipped."""
+def series(
+    history: list[dict], key: str, farm: str | None = None
+) -> list[tuple[datetime, float]]:
+    """Chronological ``(time, value)`` points for one statistic; bad entries are skipped.
+
+    With ``farm``, entries of the other farms are left out. Entries older than 0.8.1
+    name no farm: they cannot be attributed, so they stay visible.
+    """
     points: list[tuple[datetime, float]] = []
     for entry in history:
+        if farm is not None and entry.get("farm", farm) != farm:
+            continue
         values = entry.get("values")
         if not isinstance(values, dict) or not isinstance(values.get(key), int | float):
             continue

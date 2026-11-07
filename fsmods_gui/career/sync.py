@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..profiles.savegame_audit import list_savegames, parse_savegame
-from .formatting import format_value
+from .formatting import format_stat
 from .objectives import MODE_OFF, Objective
 from .stats import Q_NA, StatsSnapshot, apply_manual, extract_stats, savegame_map_id
 from .store import Career
@@ -26,8 +26,9 @@ def _detected_lines(snapshot: StatsSnapshot) -> list[str]:
     for key in ("land.area", "land.count", "vehicles.count", "animals.total",
                 "contracts.completed", "productions.count"):
         stat = snapshot.get(key)
-        if stat and stat.value is not None:
-            lines.append(f"{format_value(stat.value, stat.unit)} — {stat.label.lower()}")
+        if stat and (stat.value is not None or stat.partial is not None):
+            suffix = " (incomplète)" if stat.value is None else ""
+            lines.append(f"{format_stat(stat)} — {stat.label.lower()}{suffix}")
     return lines
 
 
@@ -88,10 +89,11 @@ def sync_career(
         message += f" {unavailable} statistique(s) non disponible(s)."
     missing = [p for p, ha in snapshot.parcels.items() if ha is None
                and p not in career.settings.parcel_areas.get(snapshot.map_id, {})]
-    if missing:
+    if missing and snapshot.value("land.area") is None:
+        listed = ", ".join(f"n° {p}" for p in missing[:10])
         message += (
-            f" 🌾 {len(missing)} parcelle(s) sans surface : renseigne-les via "
-            "« Surfaces des parcelles… »."
+            f" 🌾 {len(missing)} parcelle(s) sans surface : {listed}. "
+            "Renseigne-les via « Surfaces des parcelles… »."
         )
     return SyncReport(
         ok=True,

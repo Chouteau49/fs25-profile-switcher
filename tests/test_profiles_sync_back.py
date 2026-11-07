@@ -169,3 +169,51 @@ def test_remove_from_profile_handles_mods_and_map() -> None:
     assert p.mods == ["A.zip"]
     assert remove_from_profile(p, "Map.zip") is True
     assert p.map_mod is None
+
+
+# ---------------------------------------------- mods inherited from a collection
+
+
+def _linked(gp: GameProfile, name: str) -> None:
+    import os
+
+    _make_zip(gp.library_mods_dir / name)
+    os.link(gp.library_mods_dir / name, gp.mods_dir / name)
+
+
+def test_inherited_mods_are_not_reported_as_new(tmp_path: Path) -> None:
+    gp = _gp(tmp_path)
+    _linked(gp, "Own.zip")
+    _linked(gp, "Inherited.zip")
+    _make_zip(gp.mods_dir / "Downloaded.zip")
+    catalog = Catalog(
+        mods_dir=gp.library_mods_dir,
+        entries={
+            n: CatalogEntry(filename=n, title=n, version="1")
+            for n in ("Own.zip", "Inherited.zip")
+        },
+    )
+    profile = Profile(name="P", mods=["Own.zip"], collections=["c"])
+
+    diff = compute_diff(profile, gp, catalog, effective=["Own.zip", "Inherited.zip"])
+
+    assert diff.added_in_game == ["Downloaded.zip"]
+    assert diff.removed_in_game == []
+
+
+def test_missing_inherited_mod_is_not_offered_for_removal(tmp_path: Path) -> None:
+    gp = _gp(tmp_path)
+    catalog = Catalog(mods_dir=gp.library_mods_dir, entries={})
+    profile = Profile(name="P", mods=["Own.zip"], collections=["c"])
+    diff = compute_diff(profile, gp, catalog, effective=["Own.zip", "Inherited.zip"])
+    # remove_from_profile can only drop the profile's own mods
+    assert diff.removed_in_game == ["Own.zip"]
+
+
+def test_import_into_library_of_a_hardlinked_mod_is_a_no_op(tmp_path: Path) -> None:
+    gp = _gp(tmp_path)
+    _linked(gp, "Linked.zip")
+    catalog = Catalog(mods_dir=gp.library_mods_dir, entries={})
+    import_into_library("Linked.zip", gp, catalog)
+    assert "Linked.zip" in catalog.entries
+    assert (gp.library_mods_dir / "Linked.zip").is_file()

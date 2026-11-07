@@ -107,10 +107,6 @@ class ModDetailDialog(QDialog):
             self.gtranslate_btn.clicked.connect(self._open_google_translate)
             note_layout.addWidget(self.gtranslate_btn)
 
-            self.translate_btn = QPushButton("Traduire (FR)", self)
-            self.translate_btn.setStyleSheet("font-size: 11px; padding: 2px 10px;")
-            self.translate_btn.clicked.connect(self._on_translate)
-            note_layout.addWidget(self.translate_btn)
             note_layout.addStretch()
             layout.addLayout(note_layout)
 
@@ -142,66 +138,3 @@ class ModDetailDialog(QDialog):
             + quote(snippet)
         )
         QDesktopServices.openUrl(QUrl(url))
-
-    def _on_translate(self) -> None:
-        """Translate and inject the result into the ZIP file."""
-        self.translate_btn.setEnabled(False)
-        self.translate_btn.setText("Injection...")
-        
-        # Simple FS terms mapping for a 'smart' demo
-        mapping = {
-            "tractor": "tracteur",
-            "capacity": "capacité",
-            "weight": "poids",
-            "brand": "marque",
-            "price": "prix",
-            "speed": "vitesse",
-            "working width": "largeur de travail",
-            "power": "puissance",
-            "engine": "moteur",
-            "configuration": "configuration",
-            "color": "couleur",
-            "tire": "pneu",
-            "front loader": "chargeuse frontale",
-            "attached": "attaché",
-            "This mod": "Ce mod",
-            "Added": "Ajouté",
-            "Fixed": "Corrigé",
-            "Improved": "Amélioré",
-            "Updated": "Mis à jour",
-        }
-        
-        current_text = self.desc_label.text()
-        translated = current_text
-        for en, fr in mapping.items():
-            import re
-            translated = re.sub(rf"\b{en}\b", fr, translated, flags=re.IGNORECASE)
-        
-        # Now try to inject into the ZIP
-        from pathlib import Path
-
-        from ..profiles.translator import inject_translation_to_zip
-        
-        # We need the full path. The CatalogEntry doesn't store the full dir, 
-        # but the parent widget usually has access to the library path.
-        # For now, let's assume we can resolve it via the Catalog if available.
-        # But a safer way is to use the full path from the start.
-        
-        # Resolve full path from library
-        library_dir = Path(self.entry.filename) # Fallback
-        if hasattr(self.parent(), "model") and hasattr(self.parent().model, "catalog"):
-            library_dir = self.parent().model.catalog.mods_dir / self.entry.filename
-
-        try:
-            success = inject_translation_to_zip(library_dir, translated)
-            if success:
-                self.desc_label.setText(translated + "\n\n(Traduction injectée dans le ZIP !)")
-                self.translate_btn.setText("Injecté ✓")
-                # Note: The UI won't show the <fr> tag until the next scan, 
-                # but the ZIP is now modified!
-            else:
-                self.translate_btn.setText("Erreur injection")
-                self.translate_btn.setEnabled(True)
-        except Exception as e:
-            self.translate_btn.setText("Erreur")
-            print(f"Injection error: {e}")

@@ -178,6 +178,27 @@ class Career:
             },
         )
 
+    def set_tracked_farm(self, farm: str) -> int:
+        """Change the tracked farm; returns how many objectives stayed on the previous one.
+
+        An objective or a manual value without an explicit farm belongs to the tracked
+        farm. Completion is final, so letting them follow the selector would complete
+        them on whichever farm is merely being looked at: they are pinned to the farm
+        they were measured on.
+        """
+        previous = self.snapshot.farm_id
+        self.settings.farm = farm
+        if not previous or farm == previous:
+            return 0
+        pinned = [o for o in self.objectives if not o.farm]
+        for objective in pinned:
+            objective.farm = previous
+        self.settings.manual_stats = {
+            key if "|" in key else f"{previous}|{key}": value
+            for key, value in self.settings.manual_stats.items()
+        }
+        return len(pinned)
+
     def snapshots_by_farm(self) -> dict[str, StatsSnapshot]:
         """Every known snapshot keyed by farm id (tracked farm included)."""
         out = dict(self.farm_snapshots)
@@ -225,9 +246,11 @@ class Career:
         }
         if not values:
             return
-        if self.history and self.history[-1].get("values") == values:
+        farm = self.snapshot.farm_id
+        last = next((h for h in reversed(self.history) if h.get("farm") == farm), None)
+        if last is not None and last.get("values") == values:
             return
-        self.history.append({"t": self.snapshot.taken_at, "values": values})
+        self.history.append({"t": self.snapshot.taken_at, "farm": farm, "values": values})
         del self.history[:-HISTORY_LIMIT]
 
 

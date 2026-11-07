@@ -263,3 +263,55 @@ def test_backup_all_no_targets(tmp_path: Path) -> None:
 
     assert backup_all([], None, None) == []
     assert summarize_reports([]) == ""
+
+
+# ------------------------------------------------- a bad archive must wipe nothing
+
+
+def _with_existing(tmp_path: Path):
+    profiles, collections = _dirs(tmp_path)
+    (profiles / "keep.json").write_text('{"name":"Keep"}', encoding="utf-8")
+    (collections / "keep.json").write_text('{"name":"Keep"}', encoding="utf-8")
+    return profiles, collections
+
+
+def _assert_untouched(profiles: Path, collections: Path) -> None:
+    assert (profiles / "keep.json").is_file()
+    assert (collections / "keep.json").is_file()
+
+
+def test_replace_with_a_corrupt_zip_keeps_everything(tmp_path: Path) -> None:
+    profiles, collections = _with_existing(tmp_path)
+    bad = tmp_path / "bad.zip"
+    bad.write_bytes(b"not a zip")
+    with pytest.raises(ValueError):  # the GUI reports ValueError, not BadZipFile
+        import_config(bad, profiles, collections, mode=MODE_REPLACE)
+    _assert_untouched(profiles, collections)
+
+
+def test_replace_with_an_unrelated_zip_keeps_everything(tmp_path: Path) -> None:
+    import zipfile
+
+    profiles, collections = _with_existing(tmp_path)
+    other = tmp_path / "mod.zip"
+    with zipfile.ZipFile(other, "w") as zf:
+        zf.writestr("modDesc.xml", "<modDesc/>")
+    with pytest.raises(ValueError):
+        import_config(other, profiles, collections, mode=MODE_REPLACE)
+    _assert_untouched(profiles, collections)
+
+
+def test_unreadable_json_in_the_archive_writes_nothing(tmp_path: Path) -> None:
+    import zipfile
+
+    for mode in (MODE_MERGE, MODE_REPLACE):
+        profiles, collections = _with_existing(tmp_path / mode)
+        archive = tmp_path / f"{mode}.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("profiles/good.json", '{"name":"Good"}')
+            zf.writestr("profiles/keep.json", '{"truncated')
+        with pytest.raises(ValueError):
+            import_config(archive, profiles, collections, mode=mode)
+        _assert_untouched(profiles, collections)
+        assert (profiles / "keep.json").read_text(encoding="utf-8") == '{"name":"Keep"}'
+        assert not (profiles / "good.json").exists()

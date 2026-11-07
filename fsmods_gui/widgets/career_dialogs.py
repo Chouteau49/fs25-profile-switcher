@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import uuid
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..career.formatting import format_value, parse_area
 from ..career.objectives import (
     DIFFICULTY_LABELS_FR,
     OPERATORS,
@@ -61,6 +63,20 @@ def farm_combo(
     return combo
 
 
+class DecimalSpinBox(QDoubleSpinBox):
+    """Spin box taking "," and "." alike.
+
+    With a French locale Qt silently drops a typed dot, so "1.95" becomes 195 — and
+    the numeric keypad of an AZERTY keyboard types a dot.
+    """
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 (Qt override)
+        separator = self.locale().decimalPoint()
+        if event.text() in (".", ",") and event.text() != separator:
+            event = QKeyEvent(event.type(), event.key(), event.modifiers(), separator)
+        super().keyPressEvent(event)
+
+
 class _ConditionRow(QWidget):
     """One ``[NOT] statistic operator target unit`` line of an objective."""
 
@@ -77,7 +93,7 @@ class _ConditionRow(QWidget):
             self.stat.addItem(f"{label}  [{key}]", userData=key)
         self.operator = QComboBox(self)
         self.operator.addItems(list(OPERATORS))
-        self.target = QDoubleSpinBox(self)
+        self.target = DecimalSpinBox(self)
         self.target.setRange(-_MAX, _MAX)
         self.target.setDecimals(2)
         self.target.setGroupSeparatorShown(True)
@@ -268,10 +284,24 @@ class ObjectiveDialog(QDialog):
         )
 
 
+class _AreaEdit(QLineEdit):
+    """Area field: Enter goes to the next parcel and never reaches the dialog's OK."""
+
+    next_requested = Signal()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 (Qt override)
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.next_requested.emit()
+            return
+        super().keyPressEvent(event)
+
+
 class ParcelAreasDialog(QDialog):
     """Area of every owned parcel: read from the map, or typed in when it can't be (DLC).
 
-    ``rows`` = ``(farm label, parcel id, area from the map or None)``.
+    ``rows`` = ``(farm label, parcel id, area from the map or None)``. A blank field
+    means "not known yet", ``0`` is a real value. Plain text fields rather than spin
+    boxes: both decimal separators work and "unknown" needs no sentinel value.
     """
 
     def __init__(
@@ -283,49 +313,108 @@ class ParcelAreasDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Surfaces des parcelles")
-        self._spins: dict[str, QDoubleSpinBox] = {}
+        self._rows = rows
+        self._edits: dict[str, _AreaEdit] = {}
         intro = QLabel(map_note + (
-            "\n\nTape la surface affichée en jeu (carte → parcelle). "
-            "Laisse 0 pour une parcelle inconnue : la surface totale reste alors "
-            "« non disponible » plutôt que fausse."
+            "\n\nTape la surface affichée en jeu (carte → parcelle), par exemple 2,05. "
+            "Entrée passe à la parcelle suivante. Laisse vide une surface inconnue : "
+            "le total reste alors incomplet."
             if any(area is None for _f, _p, area in rows) else ""
         ))
         intro.setWordWrap(True)
-        table = QTableWidget(len(rows), 4, self)
-        table.setHorizontalHeaderLabels(["Parcelle", "Ferme", "Surface (ha)", "Source"])
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table = QTableWidget(len(rows), 4, self)
+        self._table.setHorizontalHeaderLabels(["Parcelle", "Ferme", "Surface (ha)", "Source"])
+        self._table.verticalHeader().setVisible(False)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self._table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         for r, (farm, pid, area) in enumerate(rows):
-            table.setItem(r, 0, QTableWidgetItem(f"n° {pid}"))
-            table.setItem(r, 1, QTableWidgetItem(farm))
+            self._table.setItem(r, 0, QTableWidgetItem(f"n° {pid}"))
+            self._table.setItem(r, 1, QTableWidgetItem(farm))
             if area is not None:
-                table.setItem(r, 2, QTableWidgetItem(f"{area:.2f}".replace(".", ",")))
-                table.setItem(r, 3, QTableWidgetItem("🟠 carte du jeu"))
+                self._table.setItem(r, 2, QTableWidgetItem(format_value(area)))
+                self._table.setItem(r, 3, QTableWidgetItem("🟠 carte du jeu"))
                 continue
-            spin = QDoubleSpinBox(table)
-            spin.setRange(0.0, 100_000.0)
-            spin.setDecimals(2)
-            spin.setSuffix(" ha")
-            spin.setValue(typed.get(pid, 0.0))
-            self._spins.setdefault(pid, spin)
-            table.setCellWidget(r, 2, spin)
-            table.setItem(r, 3, QTableWidgetItem("🔵 saisie"))
-        table.resizeColumnsToContents()
-        table.horizontalHeader().setStretchLastSection(True)
+            edit = _AreaEdit(self._table)
+            edit.setPlaceholderText("à saisir")
+            if pid in typed:
+                edit.setText(format_value(typed[pid]))
+            edit.textChanged.connect(self._refresh_total)
+            edit.next_requested.connect(lambda p=pid: self._focus_after(p))
+            self._edits[pid] = edit
+            self._table.setCellWidget(r, 2, edit)
+            self._table.setItem(r, 3, QTableWidgetItem("🔵 saisie"))
+        self._table.resizeColumnsToContents()
+        self._table.horizontalHeader().setStretchLastSection(True)
+        self.total_label = QLabel("", self)
+        self.total_label.setWordWrap(True)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
         )
+        self.ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addWidget(intro)
-        layout.addWidget(table, 1)
+        layout.addWidget(self._table, 1)
+        layout.addWidget(self.total_label)
         layout.addWidget(buttons)
         self.resize(560, 480)
+        self._refresh_total()
+
+    def _focus_after(self, pid: str) -> None:
+        order = list(self._edits)
+        following = order[order.index(pid) + 1:]
+        if not following:
+            self.ok_button.setFocus()
+            return
+        edit = self._edits[following[0]]
+        edit.setFocus()
+        edit.selectAll()
+        row = next(r for r, (_f, p, _a) in enumerate(self._rows) if p == following[0])
+        self._table.scrollToItem(self._table.item(row, 0))
+
+    def _parsed(self, pid: str) -> float | None:
+        return parse_area(self._edits[pid].text())
+
+    def _refresh_total(self) -> None:
+        total = 0.0
+        missing: list[str] = []
+        unreadable: list[str] = []
+        for _farm, pid, area in self._rows:
+            if area is not None:
+                total += area
+                continue
+            try:
+                typed = self._parsed(pid)
+            except ValueError:
+                unreadable.append(pid)
+                continue
+            if typed is None:
+                missing.append(pid)
+            else:
+                total += typed
+        text = f"<b>Total : {format_value(total, 'ha')}</b>"
+        if missing:
+            listed = ", ".join(f"n° {p}" for p in missing)
+            text = f"<b>Total : ≥ {format_value(total, 'ha')}</b> — incomplet, reste : {listed}"
+        if unreadable:
+            listed = ", ".join(f"n° {p}" for p in unreadable)
+            text += f"<br>⚠ Surface illisible : {listed}"
+        self.total_label.setText(text)
+        self.ok_button.setEnabled(not unreadable)
 
     def typed_areas(self) -> dict[str, float]:
-        """Typed areas (> 0 only: 0 means "unknown")."""
-        return {pid: spin.value() for pid, spin in self._spins.items() if spin.value() > 0}
+        """Areas typed in, ``0`` included; blank or unreadable fields are left out."""
+        out: dict[str, float] = {}
+        for pid in self._edits:
+            try:
+                value = self._parsed(pid)
+            except ValueError:
+                continue
+            if value is not None:
+                out[pid] = value
+        return out
 
 
 class ManualStatDialog(QDialog):
@@ -361,7 +450,7 @@ class ManualStatDialog(QDialog):
                 self.stat.addItem(f"{label}  [{key}]{suffix}", userData=key)
         self.stat.currentIndexChanged.connect(self._on_changed)
         self.farm.currentIndexChanged.connect(self._on_changed)
-        self.value = QDoubleSpinBox(self)
+        self.value = DecimalSpinBox(self)
         self.value.setRange(-_MAX, _MAX)
         self.value.setDecimals(2)
         self.value.setGroupSeparatorShown(True)
@@ -388,7 +477,10 @@ class ManualStatDialog(QDialog):
     def _storage_key(self, key: str) -> str:
         """Unprefixed for the tracked farm, ``"<farm>|<key>"`` for any other farm."""
         farm = self.farm.currentData() or ""
-        return key if not farm or farm == self._tracked else f"{farm}|{key}"
+        prefixed = f"{farm}|{key}"
+        if not farm or (farm == self._tracked and prefixed not in self._manual):
+            return key
+        return prefixed
 
     def _on_changed(self) -> None:
         key = self.stat.currentData()
@@ -403,8 +495,6 @@ class ManualStatDialog(QDialog):
 
 def confirm_reward(parent: QWidget, objective: Objective) -> bool:
     """Walk the player through applying a money reward by hand (e.g. with PowerTools)."""
-    from ..career.formatting import format_value
-
     amount = format_value(objective.reward.money, "€")
     box = QMessageBox(parent)
     box.setWindowTitle("Attribuer la récompense")

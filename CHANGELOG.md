@@ -1,11 +1,32 @@
 # Changelog
 
+## [0.8.1] - 2026-11-07
+
+### Fixed
+
+- **Surfaces des parcelles** : la touche Entrée fermait la fenêtre et enregistrait seulement ce qui était déjà tapé, sans prévenir ; elle passe maintenant à la parcelle suivante.
+- **Saisie décimale** : avec une locale française, un point tapé était ignoré (`1.95` devenait `195`). La virgule et le point sont acceptés dans les surfaces, les cibles d'objectifs et les statistiques manuelles.
+- **Surface possédée incomplète** : le tableau de bord affiche le minimum connu (`≥ 8,5 ha`) et la synchronisation nomme les parcelles restantes. Les objectifs restent « non disponible » tant que le total n'est pas complet.
+- **Activation sans perte** : un zip du dossier du jeu absent de la bibliothèque ou différent de sa copie (téléchargé en jeu appli fermée, mise à jour ModHub, patch local) était supprimé définitivement. Il est maintenant déplacé dans `_inbox`, où « Nouveaux mods » propose de l'importer. Si un fichier ne peut pas être déplacé (jeu lancé ?), l'activation s'arrête avant de vider le dossier.
+- **Import « Remplacer »** : l'archive est lue et vérifiée en entier avant toute écriture, et les anciens fichiers sont retirés en dernier. Une archive corrompue, sans config ou avec un JSON invalide ne change plus rien et l'erreur s'affiche (elle effaçait tout, sans message).
+- **Sauvegarde de la config** : seule la première sauvegarde de chaque session s'exécutait (`QThread` détruit puis réutilisé).
+- **Ferme suivie** : changer de ferme ne valide plus définitivement les objectifs sans ferme précise sur la ferme regardée. Ces objectifs et les statistiques manuelles restent sur la ferme où ils étaient mesurés (📌), et l'historique est tenu par ferme.
+- **Collections après une partie** : les mods hérités ne sont plus présentés comme nouveaux, et importer un mod déjà lié à la bibliothèque ne provoque plus d'erreur non gérée.
+
+### Changed
+
+- Fenêtre « 🌾 Surfaces des parcelles » : total en direct, parcelles restantes listées, champ vide = « à saisir », `0` = vraie valeur, valeur illisible signalée (OK désactivé).
+
+### Removed
+
+- Bouton « Traduire (FR) » de la fiche d'un mod et `profiles/translator.py` : il ne retrouvait pas le fichier du mod, et son remplacement mot à mot pouvait produire un `modDesc.xml` invalide. Le bouton « 🌐 Google Traduction » reste disponible.
+
 ## [0.8.0] - 2026-11-03
 
 ### Added
 
 - **💰 Case « Versé »** dans le tableau des objectifs : sur chaque objectif terminé avec une récompense en argent, coche quand tu as ajouté l'argent sur ta ferme (PowerTools). Fonctionne dans tous les modes, y compris pour une récompense « non due » ; décocher remet la récompense « à attribuer » (ou non due). Le niveau affiche « 💰 Versé : X € sur Y € gagnés ».
-- **🌾 Surface possédée** calculée automatiquement : la surface de chaque parcelle est lue sur la carte du jeu (calque `infoLayer_farmlands.grle` décodé, ids déclarés par `farmlands.xml`) pour les cartes de base et les cartes mods (dossier du jeu ou bibliothèque). Vérifié sur Le Mechet (La bergerie : 12,52 ha), Montana 4X, Les Combes, Riverbend Springs, Zielonka, Hutan Pantai.
+- **🌾 Surface possédée** calculée automatiquement : la surface de chaque parcelle est lue sur la carte du jeu (calque `infoLayer_farmlands.grle` décodé, ids déclarés par `farmlands.xml`) pour les cartes de base et les cartes mods (dossier du jeu ou bibliothèque). Décodage testé sur Le Mechet (La bergerie : 12,52 ha), Montana 4X, Les Combes, Riverbend Springs, Zielonka et Hutan Pantai ; valeurs non comparées à l'affichage en jeu.
 - **Surfaces par parcelle** pour les cartes DLC chiffrées (Kinlaig) : bouton « 🌾 Surfaces des parcelles… » qui liste les parcelles possédées ; la surface saisie une fois est réutilisée, une parcelle achetée plus tard est signalée « sans surface » à la synchronisation. Une parcelle inconnue laisse le total « non disponible » plutôt qu'une somme partielle fausse.
 - **Vignettes des cartes officielles** : un profil peut choisir une carte officielle (🏛 Riverbend Springs, Zielonka, Hutan Pantai, Kinlaig) dans le sélecteur de carte ; sa vignette s'affiche dans la liste des profils, l'éditeur et le bouton d'activation (aperçu `preview.dds` du jeu, ou image Steam en cache pour un DLC). Un profil sans carte reçoit automatiquement la carte officielle de la sauvegarde liée à sa carrière.
 

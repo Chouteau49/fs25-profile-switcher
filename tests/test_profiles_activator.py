@@ -86,9 +86,9 @@ def test_activate_profile_hardlinks_when_same_volume(tmp_path: Path) -> None:
 
 def test_activate_profile_wipes_prior_zips(tmp_path: Path) -> None:
     gp = _game_profile(tmp_path)
-    (gp.mods_dir / "stale.zip").write_bytes(b"old")
     (gp.mods_dir / "keep.xml").write_text("<x/>")
-    catalog = _catalog_with(gp.library_mods_dir, ["FS25_New.zip"])
+    catalog = _catalog_with(gp.library_mods_dir, ["FS25_New.zip", "stale.zip"])
+    (gp.mods_dir / "stale.zip").hardlink_to(gp.library_mods_dir / "stale.zip")
     profile = Profile(name="X", mods=["FS25_New.zip"])
 
     report = activate_profile(profile, gp, catalog)
@@ -191,3 +191,91 @@ def test_activate_and_launch_skips_launcher_on_error(tmp_path: Path) -> None:
     assert report.ok is False
     assert launched is False
     assert called == []
+
+
+# ---------------------------------------- mods that exist only in the game folder
+
+
+def _activate(tmp_path: Path, library_mods: list[str], selection: list[str]):
+    gp = _game_profile(tmp_path)
+    catalog = _catalog_with(gp.library_mods_dir, library_mods)
+    profile = Profile(name="P", mods=selection)
+    return gp, catalog, profile
+
+
+def test_activation_keeps_a_mod_absent_from_the_library(tmp_path: Path) -> None:
+    gp, catalog, profile = _activate(tmp_path, ["A.zip"], ["A.zip"])
+    _make_zip(gp.mods_dir / "FS25_Downloaded.zip", b"only here")
+
+    report = activate_profile(profile, gp, catalog)
+
+    assert report.errors == []
+    saved = gp.inbox_dir_effective / "FS25_Downloaded.zip"
+    assert saved.read_bytes() == b"only here"  # shows up in the "new mods" dialog
+    assert report.rescued == [saved]
+    assert not (gp.mods_dir / "FS25_Downloaded.zip").exists()
+    assert (gp.mods_dir / "A.zip").is_file()
+
+
+def test_activation_keeps_a_mod_that_differs_from_the_library(tmp_path: Path) -> None:
+    gp, catalog, profile = _activate(tmp_path, ["Courseplay.zip"], ["Courseplay.zip"])
+    _make_zip(gp.mods_dir / "Courseplay.zip", b"patched locally, other size")
+
+    report = activate_profile(profile, gp, catalog)
+
+    saved = gp.inbox_dir_effective / "Courseplay.zip"
+    assert saved.read_bytes() == b"patched locally, other size"
+    assert report.rescued == [saved]
+    assert (gp.mods_dir / "Courseplay.zip").read_bytes() == (
+        gp.library_mods_dir / "Courseplay.zip"
+    ).read_bytes()
+
+
+def test_activation_does_not_keep_links_or_identical_copies(tmp_path: Path) -> None:
+    import os
+    import shutil
+
+    gp, catalog, profile = _activate(tmp_path, ["L.zip", "C.zip", "T.zip"], ["L.zip"])
+    os.link(gp.library_mods_dir / "L.zip", gp.mods_dir / "L.zip")
+    shutil.copy2(gp.library_mods_dir / "C.zip", gp.mods_dir / "C.zip")
+    # same bytes, other timestamp: compared by content
+    (gp.mods_dir / "T.zip").write_bytes((gp.library_mods_dir / "T.zip").read_bytes())
+    os.utime(gp.mods_dir / "T.zip", (1, 1))
+
+    report = activate_profile(profile, gp, catalog)
+
+    assert report.rescued == []
+    assert sorted(p.name for p in report.removed) == ["C.zip", "L.zip", "T.zip"]
+
+
+def test_activation_never_overwrites_what_the_inbox_already_holds(tmp_path: Path) -> None:
+    gp, catalog, profile = _activate(tmp_path, ["A.zip"], ["A.zip"])
+    _make_zip(gp.inbox_dir_effective / "X.zip", b"older download")
+    _make_zip(gp.mods_dir / "X.zip", b"other version")
+
+    report = activate_profile(profile, gp, catalog)
+
+    assert (gp.inbox_dir_effective / "X.zip").read_bytes() == b"older download"
+    assert report.rescued[0].read_bytes() == b"other version"
+    assert report.rescued[0].name == "X.zip"
+
+
+def test_activation_aborts_before_wiping_if_a_mod_cannot_be_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fsmods_gui.profiles import activator
+
+    gp, catalog, profile = _activate(tmp_path, ["A.zip"], ["A.zip"])
+    _make_zip(gp.mods_dir / "Locked.zip", b"used by the running game")
+    _make_zip(gp.mods_dir / "Other.zip", b"not in the library either")
+
+    def refuse(*_args: object) -> None:
+        raise PermissionError("fichier utilisé")
+
+    monkeypatch.setattr(activator.shutil, "move", refuse)
+    report = activate_profile(profile, gp, catalog)
+
+    assert report.errors and "Locked.zip" in report.errors[0][0]
+    assert (gp.mods_dir / "Locked.zip").read_bytes() == b"used by the running game"
+    assert (gp.mods_dir / "Other.zip").is_file()
+    assert report.removed == [] and report.activated == []

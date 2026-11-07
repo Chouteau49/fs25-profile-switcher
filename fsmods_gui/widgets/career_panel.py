@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..career.farmland_areas import is_dlc_map, map_farmland_areas
-from ..career.formatting import format_value
+from ..career.formatting import format_stat, format_value
 from ..career.history import CHART_SERIES, series
 from ..career.objectives import (
     DIFFICULTY_LABELS_FR,
@@ -315,7 +315,9 @@ class CareerPanel(QWidget):
 
     def _fill_history(self) -> None:
         key, unit = self.history_combo.currentData()
-        self.history_chart.set_points(series(self._career.history, key), unit)
+        self.history_chart.set_points(
+            series(self._career.history, key, self._career.snapshot.farm_id), unit
+        )
 
     def _fill_cards(self) -> None:
         while self.cards_grid.count():
@@ -328,7 +330,7 @@ class CareerPanel(QWidget):
         for i, (key, icon) in enumerate(_CARDS):
             stat = snapshot.get(key)
             label = stat.label if stat else key
-            value = format_value(stat.value, stat.unit) if stat else "—"
+            value = format_stat(stat) if stat else "—"
             quality = stat.quality if stat else Q_NA
             card = QLabel(
                 f"<span style='font-size:11px;color:#666'>{icon} {label}</span><br>"
@@ -556,9 +558,14 @@ class CareerPanel(QWidget):
         self._on_sync_clicked()
 
     def _on_farm_changed(self) -> None:
-        self._career.settings.farm = self.farm_combo.currentData() or ""
+        previous = self._farm_label(self._career.snapshot.farm_id)
+        pinned = self._career.set_tracked_farm(self.farm_combo.currentData() or "")
         self._career.save()
         self._on_sync_clicked()
+        if pinned:
+            self.sync_label.setText(
+                f"{self.sync_label.text()}<br>📌 {pinned} objectif(s) restent sur « {previous} »."
+            )
 
     def _on_mode_changed(self) -> None:
         self._career.settings.mode = self.mode_combo.currentData()

@@ -12,6 +12,7 @@ produces an actionable diff. It also exposes apply helpers to:
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -94,15 +95,22 @@ def compute_diff(
     game_profile: GameProfile,
     catalog: Catalog,
     baseline_hashes: dict[str, str] | None = None,
+    effective: list[str] | None = None,
 ) -> SyncDiff:
-    """Compare the live game folder to ``profile`` and ``catalog``."""
+    """Compare the live game folder to ``profile`` and ``catalog``.
+
+    ``effective`` is what was activated (own mods + inherited collections −
+    exclusions): an inherited mod in the game folder is expected, not "new". Only
+    the profile's own mods can be offered for removal, it can't drop the others.
+    """
     game_zips = set(_list_game_zips(game_profile.mods_dir))
-    profile_zips = set(profile.all_mod_filenames())
+    own_zips = set(profile.all_mod_filenames())
+    profile_zips = own_zips | set(effective or [])
     library_zips = set(catalog.entries)
 
     diff = SyncDiff()
     diff.added_in_game = sorted(game_zips - profile_zips)
-    diff.removed_in_game = sorted(profile_zips - game_zips)
+    diff.removed_in_game = sorted(own_zips - game_zips)
     diff.untracked_in_library = sorted(game_zips - library_zips)
 
     # Primary strategy: compare with the "pre-game" snapshot.
@@ -150,7 +158,8 @@ def import_into_library(
     library_mods = game_profile.library_mods_dir
     library_mods.mkdir(parents=True, exist_ok=True)
     dst = library_mods / filename
-    shutil.copy2(src, dst)
+    if not (dst.exists() and os.path.samefile(src, dst)):  # a hardlink is already there
+        shutil.copy2(src, dst)
     catalog.entries[filename] = _read_moddesc_from_zip(dst)
     return catalog
 

@@ -5,15 +5,21 @@ mod listed in the profile from the library to the game folder. Hardlinks are
 instantaneous and use no extra disk space, but only work when source and
 destination live on the **same NTFS volume**. If hardlinking fails (cross-volume
 or non-NTFS), we transparently fall back to a copy.
+
+The wipe must never lose anything: a zip of the game folder that exists nowhere
+else (downloaded in game while the app was closed, ModHub update, local patch) is
+first moved to the inbox, where the "new mods" dialog offers to import it.
 """
 from __future__ import annotations
 
+import filecmp
 import os
 import shutil
 import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -35,6 +41,7 @@ class ActivationReport:
     profile_name: str
     activated: list[ModActivation] = field(default_factory=list)
     removed: list[Path] = field(default_factory=list)
+    rescued: list[Path] = field(default_factory=list)  # where at-risk zips were moved
     missing: list[str] = field(default_factory=list)
     errors: list[tuple[str, str]] = field(default_factory=list)
 
@@ -59,6 +66,58 @@ def _safe_link_or_copy(src: Path, dst: Path) -> str:
     except OSError:
         shutil.copy2(src, dst)
         return "copy"
+
+
+def _same_content(a: Path, b: Path) -> bool:
+    """True when both paths hold the same bytes; a missing file means False.
+
+    Hardlinks and ``copy2`` copies (same size + mtime) are recognised without
+    reading them: a whole profile weighs several GB.
+    """
+    try:
+        if os.path.samefile(a, b):
+            return True
+        stat_a, stat_b = a.stat(), b.stat()
+        if stat_a.st_size != stat_b.st_size:
+            return False
+        return stat_a.st_mtime_ns == stat_b.st_mtime_ns or filecmp.cmp(a, b, shallow=False)
+    except OSError:
+        return False
+
+
+def mods_at_risk(mods_dir: Path, library_mods_dir: Path) -> list[Path]:
+    """Zips of the game folder that the library cannot restore.
+
+    Either absent from the library, or different from its copy. Wiping them would
+    lose them for good.
+    """
+    if not mods_dir.is_dir():
+        return []
+    return [
+        entry
+        for entry in sorted(mods_dir.iterdir())
+        if entry.is_file()
+        and entry.suffix.lower() == ".zip"
+        and not _same_content(entry, library_mods_dir / entry.name)
+    ]
+
+
+def rescue_mod(zip_path: Path, rescue_dir: Path) -> Path:
+    """Move ``zip_path`` into ``rescue_dir`` and return where it now is.
+
+    What the folder already holds is never overwritten: a different file of that
+    name goes to a dated sub-folder instead. Raises ``OSError`` on failure.
+    """
+    rescue_dir.mkdir(parents=True, exist_ok=True)
+    target = rescue_dir / zip_path.name
+    if target.exists():
+        if _same_content(zip_path, target):
+            zip_path.unlink()
+            return target
+        target = rescue_dir / f"mis-de-cote-{datetime.now():%Y%m%d-%H%M%S}" / zip_path.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(zip_path), str(target))
+    return target
 
 
 def clear_game_mods(mods_dir: Path) -> list[Path]:
@@ -116,6 +175,16 @@ def activate_profile(
 
     selection = mod_filenames if mod_filenames is not None else profile.all_mod_filenames()
     total = len(selection) + 1  # +1 for the wipe step
+    cb(0, total, "Mise à l'abri des mods absents de la bibliothèque…")
+    rescue_dir = game_profile.inbox_dir_effective or game_profile.library_dir / "_inbox"
+    for zip_path in mods_at_risk(mods_dir, catalog.mods_dir):
+        try:
+            report.rescued.append(rescue_mod(zip_path, rescue_dir))
+        except OSError as exc:
+            report.errors.append((zip_path.name, f"mise à l'abri impossible : {exc}"))
+    if report.errors:
+        return report  # nothing is wiped unless everything is safe (game still running?)
+
     cb(0, total, "Nettoyage du dossier mods du jeu…")
     report.removed = clear_game_mods(mods_dir)
 

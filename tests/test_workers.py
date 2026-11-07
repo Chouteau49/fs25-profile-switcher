@@ -1,0 +1,32 @@
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtCore import QCoreApplication, QEventLoop, QObject, QTimer, Signal
+
+from fsmods_gui.workers import make_worker_thread
+
+
+class _Worker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        self.finished.emit([])
+
+
+def test_thread_stays_usable_after_its_worker_finished() -> None:
+    # MainWindow keeps the thread and asks isRunning() before the next backup: a
+    # thread deleted behind its back raised RuntimeError, so only the first backup
+    # of a session ever ran.
+    app = QCoreApplication.instance() or QCoreApplication([])
+    assert app is not None
+    worker = _Worker()  # like MainWindow: the caller keeps the worker alive
+    thread = make_worker_thread(worker)
+    thread.start()
+    loop = QEventLoop()
+    QTimer.singleShot(300, loop.quit)
+    loop.exec()
+    assert thread.isRunning() is False

@@ -21,6 +21,7 @@ import shutil
 import socket
 import time
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -83,6 +84,58 @@ def export_config(
     return dest_zip
 
 
+def _read_archive(
+    src_zip: Path, targets: dict[str, Path], careers_dir: Path | None
+) -> tuple[dict[Path, bytes], ImportResult, bool]:
+    """Read and check the whole archive: ``(path -> content, counters, has careers)``.
+
+    Nothing is written here, so a bad archive leaves the config untouched. Raises
+    ``ValueError`` (what the GUI reports) when it is unreadable, holds an invalid
+    JSON file, or holds no config at all.
+    """
+    planned: dict[Path, bytes] = {}
+    result = ImportResult()
+    careers: set[str] = set()
+    try:
+        with zipfile.ZipFile(src_zip) as zf:
+            names = zf.namelist()
+            has_careers = any(
+                n.replace("\\", "/").startswith(f"{CAREERS_SECTION}/") for n in names
+            )
+            for name in names:
+                parts = name.replace("\\", "/").split("/")
+                if not parts[-1].lower().endswith(".json"):
+                    continue
+                if len(parts) == 2 and parts[0] in targets:
+                    base = _safe_name(parts[1])
+                    if base is None:
+                        continue
+                    dest = targets[parts[0]] / base
+                    if parts[0] == "profiles":
+                        result.profiles_imported += 1
+                    else:
+                        result.collections_imported += 1
+                elif len(parts) == 3 and parts[0] == CAREERS_SECTION and careers_dir is not None:
+                    slug, base = _safe_name(parts[1]), _safe_name(parts[2])
+                    if slug is None or base is None:
+                        continue
+                    dest = careers_dir / slug / base
+                    careers.add(slug)
+                else:
+                    continue
+                planned[dest] = zf.read(name)
+                try:
+                    json.loads(planned[dest])
+                except ValueError as exc:
+                    raise ValueError(f"{name} : JSON invalide ({exc}).") from exc
+    except (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError) as exc:
+        raise ValueError(f"Archive illisible : {exc}") from exc
+    if not planned:
+        raise ValueError("Cette archive ne contient ni profil, ni collection, ni carrière.")
+    result.careers_imported = len(careers)
+    return planned, result, has_careers
+
+
 def import_config(
     src_zip: Path,
     profiles_dir: Path,
@@ -97,47 +150,27 @@ def import_config(
     matched by filename; zip paths are sanitised (basename only) to avoid writing
     outside the target directories. Archives without ``careers/`` (older exports)
     restore as before.
+
+    The archive is fully read and checked first, and :data:`MODE_REPLACE` removes
+    the old files last: a bad archive raises ``ValueError`` and changes nothing.
     """
     if mode not in (MODE_MERGE, MODE_REPLACE):
         raise ValueError(f"Unknown import mode: {mode!r}")
     targets = {"profiles": profiles_dir, "collections": collections_dir}
+    planned, result, has_careers = _read_archive(src_zip, targets, careers_dir)
+
     for d in targets.values():
         d.mkdir(parents=True, exist_ok=True)
+    for path, data in planned.items():
+        _write_bytes(path, data)
     if mode == MODE_REPLACE:
-        for d in targets.values():
-            for p in d.glob("*.json"):
+        result.replaced = True
+        stale = [p for d in targets.values() for p in d.glob("*.json")]
+        if has_careers:
+            stale += _career_files(careers_dir)
+        for p in stale:
+            if p not in planned:
                 p.unlink()
-
-    result = ImportResult(replaced=mode == MODE_REPLACE)
-    with zipfile.ZipFile(src_zip) as zf:
-        careers_in_zip = [
-            n for n in zf.namelist()
-            if n.replace("\\", "/").startswith(f"{CAREERS_SECTION}/")
-        ]
-        if mode == MODE_REPLACE and careers_dir is not None and careers_in_zip:
-            for p in _career_files(careers_dir):
-                p.unlink()
-        imported_careers: set[str] = set()
-        for name in zf.namelist():
-            parts = name.replace("\\", "/").split("/")
-            if not parts[-1].lower().endswith(".json"):
-                continue
-            if len(parts) == 2 and parts[0] in targets:
-                base = _safe_name(parts[1])
-                if base is None:
-                    continue
-                _write_bytes(targets[parts[0]] / base, zf.read(name))
-                if parts[0] == "profiles":
-                    result.profiles_imported += 1
-                else:
-                    result.collections_imported += 1
-            elif len(parts) == 3 and parts[0] == CAREERS_SECTION and careers_dir is not None:
-                slug, base = _safe_name(parts[1]), _safe_name(parts[2])
-                if slug is None or base is None:
-                    continue
-                _write_bytes(careers_dir / slug / base, zf.read(name))
-                imported_careers.add(slug)
-        result.careers_imported = len(imported_careers)
     return result
 
 

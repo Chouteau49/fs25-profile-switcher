@@ -56,6 +56,10 @@ CATEGORIES_FR = {
 }
 
 
+def _as_float(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) else None
+
+
 @dataclass
 class Stat:
     key: str
@@ -65,6 +69,9 @@ class Stat:
     unit: str = ""
     category: str = "general"
     note: str = ""
+    # Known minimum of a statistic that stays unavailable (``value`` is None), for
+    # display only: objectives never see it, a lower bound proves nothing.
+    partial: float | None = None
 
     @property
     def available(self) -> bool:
@@ -118,6 +125,7 @@ class StatsSnapshot:
                     "unit": s.unit,
                     "category": s.category,
                     "note": s.note,
+                    "partial": s.partial,
                 }
                 for k, s in sorted(self.stats.items())
             },
@@ -155,6 +163,7 @@ class StatsSnapshot:
                     unit=str(d.get("unit", "")),
                     category=str(d.get("category", "general")),
                     note=str(d.get("note", "")),
+                    partial=_as_float(d.get("partial")),
                 )
         return snap
 
@@ -306,6 +315,7 @@ class _Collector:
         label: str | None = None,
         unit: str | None = None,
         category: str | None = None,
+        partial: float | None = None,
     ) -> None:
         d_label, d_unit, d_cat = label_for(key)
         self.stats[key] = Stat(
@@ -316,6 +326,7 @@ class _Collector:
             unit=d_unit if unit is None else unit,
             category=category or d_cat,
             note=note,
+            partial=partial,
         )
 
 
@@ -658,8 +669,9 @@ def _extract_land(
 
     ``farmland.xml`` only stores ``id`` + ``farmId``: each parcel's area comes from
     the map (``map_areas``) or, for an unreadable map (DLC), from what the player
-    typed per parcel (``manual_areas``). One parcel without an area makes the total
-    "non disponible" — a partial sum would silently understate it.
+    typed per parcel (``manual_areas``, where ``0`` is a real value). One parcel without
+    an area keeps the total "non disponible" for objectives — a partial sum would
+    understate it — but its known minimum stays displayed (``Stat.partial``).
     """
     if root is None:
         return
@@ -691,6 +703,7 @@ def _extract_land(
             None,
             note=f"{map_note}Surface à saisir pour {len(missing)} parcelle(s) : {listed} "
             "(bouton « 🌾 Surfaces des parcelles… »).",
+            partial=total if from_map or from_manual else None,
         )
         return
     if from_manual and not from_map:

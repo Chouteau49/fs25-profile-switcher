@@ -212,7 +212,8 @@ def make_worker_thread(worker: QObject) -> Any:
     """Wrap a worker in a fresh QThread and wire start → run → cleanup.
 
     Returns the QThread so the caller can keep a reference (Qt requires the
-    thread object to outlive its execution).
+    thread object to outlive its execution). The caller owns it: deleting it when it
+    finishes would leave that reference dangling, and the next ``isRunning()`` raises.
     """
     from PySide6.QtCore import QThread  # local: heavy import, only when used
 
@@ -225,5 +226,4 @@ def make_worker_thread(worker: QObject) -> Any:
         if sig is not None:
             sig.connect(thread.quit)
     thread.finished.connect(worker.deleteLater)
-    thread.finished.connect(thread.deleteLater)
     return thread
