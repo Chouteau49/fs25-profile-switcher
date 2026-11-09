@@ -172,6 +172,7 @@ class Config:
     games: dict[str, GameProfile]
     default_game: str
     repo_root: Path = field(default_factory=lambda: REPO_ROOT)
+    source_path: Path | None = None  # fichier lu (là où les Paramètres réécrivent)
 
     def mods_src_dir(self, game: str) -> Path:
         return self.repo_root / "mods" / game
@@ -291,4 +292,5 @@ def load(path: Path | None = None) -> Config:
     return Config(
         games=games,
         default_game=default_game,
+        source_path=cfg_path,
     )

@@ -14,7 +14,7 @@ def test_every_former_tab_has_a_place():
     keys = {f.key for f in nav.all_features()}
     assert keys == {
         "home", "editor", "newmods", "allmods", "collections", "career", "log", "audit",
-        "duplicates", "autodrive", "testrunner", "stats",
+        "duplicates", "autodrive", "testrunner", "stats", "settings",
     }
 
 

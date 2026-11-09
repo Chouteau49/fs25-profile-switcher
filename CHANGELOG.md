@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.16.0] - 2026-11-09
+
+Dernière étape de la refonte : plus besoin d'éditer un fichier pour régler l'appli.
+
+### Added
+
+- **Assistant de premier lancement** : sans `config.yaml`, l'appli ne s'arrête plus sur une erreur. Trois étapes : le jeu (FS25 / FS22, détectés via Steam et `Documents\My Games`), les dossiers (dossier mods détecté, bibliothèque proposée sur le **même disque** que le jeu, avec alerte et bouton **Utiliser …** sinon), puis les mods actuels : les ajouter à la bibliothèque (lien physique ou copie, rien n'est déplacé ni supprimé dans le jeu) et créer un profil « Partie actuelle ». La config est écrite dans `%APPDATA%\fsmods-gui\config.yaml`.
+- **Paramètres** (barre latérale) : dossier mods du jeu, bibliothèque (avec la vérification « même disque »), application Steam, cibles de sauvegarde de la config (ajouter / retirer), thème, chemin du fichier de config, **Relancer l'assistant**. **Enregistrer** réécrit `config.yaml` (l'ancien est gardé en `config.yaml.bak`, les réglages inconnus de l'appli sont conservés), recharge et rescanne sans redémarrer.
+- **Palette de commandes (Ctrl+K)**, aussi via la loupe en bas de la barre latérale : jouer ou ouvrir un profil, ouvrir une collection, aller à un écran, créer un profil ou une collection, rescanner, exporter / importer, journal, et retrouver un mod par son nom. Recherche sans tenir compte des accents ni de la casse, ↑ ↓ Entrée Échap.
+- **Nouveau profil sur un seul écran** : nom (refusé s'il existe déjà), carte, collections héritées et type de carrière ; remplace les deux fenêtres enchaînées.
+
+### Fixed
+
+- **Plantage de l'appli** en lançant un scan pendant qu'un autre tournait (bouton Rescanner cliqué pendant le scan de démarrage, par exemple) : le scan en cours était détruit en pleine exécution. Le second scan est maintenant mis en attente. Défaut présent avant la refonte.
+- Une seconde activation ne peut plus démarrer pendant qu'une première tourne (possible depuis la palette).
+
 ## [0.15.0] - 2026-11-09
 
 Fin de la refonte de la Carrière.

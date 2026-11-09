@@ -30,6 +30,9 @@ L'interface graphique `fsmods-gui` (du projet **fs25-profile-switcher**) permet 
     - **Collections** : une carte par collection (nombre de mods, profils qui l'utilisent) ; **Modifier** l'ouvre dans l'éditeur.
   - **Carrière** : du profil choisi, en deux vues : **Tableau de bord** (chiffres clés, progression, récompenses, historique) et **Objectifs** (cartes regroupées par statut, avec progression, récompense et case **Versé**). Changer de profil dans la liste reste sur la Carrière.
   - **Diagnostic** : un tableau de six outils (Log FS25, Audit sauvegarde, Doublons, Routes AutoDrive, Tester les mods, Statistiques), chacun avec un état en une ligne ; un point orange signale ce qui mérite un coup d'œil. **Ouvrir** affiche l'outil, **Tous les outils** revient au tableau.
+- **Paramètres** : dossiers du jeu et de la bibliothèque (vérification « même disque » pour l'activation instantanée), application Steam, cibles de sauvegarde de la config, thème, **Relancer l'assistant**.
+- **Palette (Ctrl+K)**, ou la loupe en bas de la barre latérale : tape quelques lettres pour jouer ou ouvrir un profil, aller à un écran, lancer une action ou retrouver un mod.
+- **Nouveau profil** : un seul écran pour le nom, la carte, les collections et le type de carrière.
 - **Éditeur d'un profil** : ouvert depuis une carte de l'accueil ou en cliquant un profil (ou une collection) dans la liste latérale.
 - **Notifications** (en bas à droite) : les informations s'affichent sans bloquer et disparaissent seules. Après avoir retiré ou exclu un mod dans l'éditeur, **Annuler** remet le profil comme avant.
 - **Listes Profils et Collections** : un fichier JSON par profil sous `library/profiles/`. Les boutons + / dupliquer / supprimer sont à droite de chaque titre.
@@ -103,7 +106,7 @@ Pour un utilisateur final, télécharge plutôt le `.exe` depuis la page [Releas
 
 ### Configuration
 
-Copie `config.example.yaml` en `config.yaml` (à la racine du dépôt, ou à côté du `.exe` pour la version packagée) et adapte :
+Au premier lancement, l'**assistant** crée la configuration (jeu, dossier mods, bibliothèque, import des mods actuels) dans `%APPDATA%\fsmods-gui\config.yaml`. Ensuite, la page **Paramètres** la modifie (l'ancienne version est gardée en `config.yaml.bak`). Le fichier reste éditable à la main ; il est cherché à la racine du dépôt, à côté du `.exe`, dans le dossier courant, puis dans `%APPDATA%\fsmods-gui`. Exemple :
 
 ```yaml
 default_game: fs25

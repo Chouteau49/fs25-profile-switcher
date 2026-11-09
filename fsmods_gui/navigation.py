@@ -17,6 +17,7 @@ SECTION_PROFILES = "profiles"
 SECTION_LIBRARY = "library"
 SECTION_CAREER = "career"
 SECTION_DIAGNOSTIC = "diagnostic"
+SECTION_SETTINGS = "settings"
 
 # ---- vues (contenu d'un espace)
 FEATURE_HOME = "home"
@@ -31,6 +32,7 @@ FEATURE_DUPLICATES = "duplicates"
 FEATURE_AUTODRIVE = "autodrive"
 FEATURE_TESTRUNNER = "testrunner"
 FEATURE_STATS = "stats"
+FEATURE_SETTINGS = "settings"
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,13 @@ SECTIONS: tuple[Section, ...] = (
             Feature(FEATURE_STATS, "Statistiques", "chart"),
         ),
         "Outils de maintenance : log du jeu, audit, doublons, tests…",
+    ),
+    Section(
+        SECTION_SETTINGS,
+        "Paramètres",
+        "settings",
+        (Feature(FEATURE_SETTINGS, "Paramètres", "settings"),),
+        "Dossiers du jeu et de la bibliothèque, sauvegardes, apparence.",
     ),
 )
 

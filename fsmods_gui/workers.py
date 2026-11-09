@@ -208,3 +208,26 @@ def make_worker_thread(worker: QObject) -> Any:
             sig.connect(thread.quit)
     thread.finished.connect(worker.deleteLater)
     return thread
+
+
+class LibraryImportWorker(QObject):
+    """Import initial des mods du jeu dans la bibliothèque (assistant de démarrage)."""
+
+    progress = Signal(int, int, str)
+    finished = Signal(object)  # config_setup.ImportResult
+    failed = Signal(str)
+
+    def __init__(self, files: list, library_mods_dir) -> None:
+        super().__init__()
+        self._files = files
+        self._dest = library_mods_dir
+
+    def run(self) -> None:
+        from .config_setup import import_into_library
+
+        try:
+            result = import_into_library(self._files, self._dest, self.progress.emit)
+        except Exception as exc:  # noqa: BLE001 - reported to the UI, logged by the hook
+            self.failed.emit(str(exc))
+            return
+        self.finished.emit(result)

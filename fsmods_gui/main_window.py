@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QActionGroup, QDesktopServices, QIcon, QPixmap
+from PySide6.QtGui import (
+    QActionGroup,
+    QDesktopServices,
+    QIcon,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -134,6 +141,7 @@ class MainWindow(QMainWindow):
         self._TAB_ALLMODS = nav.FEATURE_ALLMODS
         self._TAB_COLLECTIONS = nav.FEATURE_COLLECTIONS
         self._tab_builders = {
+            nav.FEATURE_SETTINGS: self._build_settings_panel,
             self._TAB_ALLMODS: self._build_all_mods_panel,
             self._TAB_COLLECTIONS: self._build_collections_panel,
             self._TAB_CAREER: self._build_career_panel,
@@ -249,12 +257,15 @@ class MainWindow(QMainWindow):
         self.toast = Toast(central, bottom_margin=self.session.sizeHint().height() + 14)
         self._activating_slug: str | None = None
         self._running_slug: str | None = None
+        palette_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        palette_shortcut.activated.connect(self._open_palette)
         self.sidebar.set_current(nav.SECTION_HOME)
         self.pages.setCurrentIndex(self._section_pages[nav.SECTION_HOME])
 
         # ---- workers (kept as attributes so they survive the call)
         self._scan_thread: QThread | None = None
         self._scan_worker: ScanWorker | None = None
+        self._scan_pending = False
         self._activate_thread: QThread | None = None
         self._activating_profile: Profile | None = None
         self._activate_worker: ActivateWorker | None = None
@@ -386,7 +397,14 @@ class MainWindow(QMainWindow):
         theme_btn.setMenu(self._make_theme_menu())
         icons.bind(theme_btn, "palette", icons.ROLE_MUTED)
 
-        for btn in (rescan, tools, theme_btn):
+        search_btn = QToolButton(row)
+        search_btn.setProperty("role", "icon")
+        search_btn.setToolTip("Rechercher ou lancer (Ctrl+K)")
+        search_btn.setAccessibleName("Rechercher ou lancer")
+        icons.bind(search_btn, "search", icons.ROLE_MUTED)
+        search_btn.clicked.connect(self._open_palette)
+
+        for btn in (search_btn, rescan, tools, theme_btn):
             btn.setIconSize(QSize(18, 18))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             lay.addWidget(btn)
@@ -642,6 +660,193 @@ class MainWindow(QMainWindow):
         self._on_view_changed()
 
     # ---- builders: each returns the panel to show in its tab
+
+    # ============================================================ settings
+
+    def _current_game_settings(self):
+        from .config_setup import GameSettings
+
+        game = self.state.game
+        return GameSettings(
+            self.state.game_key,
+            game.mods_dir,
+            game.library_dir or game.mods_dir.parent / "Library",
+            game.steam_app_id,
+            tuple(game.config_backup_dirs),
+            game.install_dir,
+        )
+
+    def _build_settings_panel(self) -> QWidget:
+        from .widgets import theming
+        from .widgets.settings_page import SettingsPage
+
+        page = SettingsPage(self)
+        page.set_settings(
+            self._current_game_settings(), self.state.cfg.source_path, theming.saved_mode()
+        )
+        page.save_requested.connect(self._save_settings)
+        page.wizard_requested.connect(self._run_wizard)
+        page.theme_requested.connect(self._set_theme)
+        page.open_config_dir_requested.connect(self._open_config_dir)
+        return page
+
+    def _config_path(self) -> Path:
+        import os
+
+        from . import config as cfgmod
+        from .config_setup import default_config_path
+
+        if self.state.cfg.source_path is not None:
+            return self.state.cfg.source_path
+        appdata = os.getenv("APPDATA")
+        return default_config_path(Path(appdata) if appdata else None, cfgmod.REPO_ROOT)
+
+    def _open_config_dir(self) -> None:
+        folder = self._config_path().parent
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def _save_settings(self, settings) -> bool:
+        """Écrit config.yaml (copie .bak d'abord), recharge et rescanne."""
+        import shutil
+
+        from . import config as cfgmod
+        from .config_setup import updated_config_text
+        from .profiles.atomic import atomic_write_text
+
+        path = self._config_path()
+        try:
+            old = path.read_text(encoding="utf-8") if path.is_file() else None
+            if old is not None:
+                shutil.copy2(path, path.with_name(path.name + ".bak"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(path, updated_config_text(old, settings))
+            cfg = cfgmod.load(path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Paramètres non enregistrés", str(exc))
+            return False
+        self.state.cfg = cfg
+        if settings.library_dir is not None:
+            for sub in ("mods", "profiles", "collections"):
+                (settings.library_dir / sub).mkdir(parents=True, exist_ok=True)
+        self.state.refresh_profiles()
+        self.state.refresh_collections()
+        self._refresh_profiles_ui()
+        self._refresh_collections_ui()
+        self._start_scan()
+        if self._visible_feature() == nav.FEATURE_SETTINGS:
+            self._rebuild_feature_tab(nav.FEATURE_SETTINGS)
+        self.notify(f"Paramètres enregistrés ({path.name}, ancienne version en .bak).")
+        return True
+
+    def _run_wizard(self) -> None:
+        import os
+
+        from .config_setup import program_files_dirs
+        from .widgets.settings_page import FirstRunWizard
+
+        program_files = program_files_dirs(dict(os.environ))
+        wizard = FirstRunWizard(Path.home(), program_files, self._current_game_settings(), self)
+        if wizard.exec() != wizard.DialogCode.Accepted:
+            return
+        settings = wizard.settings()
+        if settings is not None and self._save_settings(settings) and wizard.import_requested():
+            self.start_initial_import(create_profile=wizard.profile_requested())
+
+    def start_initial_import(self, *, create_profile: bool) -> None:
+        """Ajoute les mods du dossier du jeu à la bibliothèque (lien ou copie), en tâche de fond."""
+        from .config_setup import initial_import_plan
+        from .workers import LibraryImportWorker
+
+        game = self.state.game
+        if game.library_mods_dir is None:
+            return
+        files = initial_import_plan(game.mods_dir, game.library_mods_dir)
+        if not files:
+            return
+        names = [f.name for f in files]
+        self._import_worker = LibraryImportWorker(files, game.library_mods_dir)
+        self._import_worker.progress.connect(
+            lambda i, n, name: self.session.flash(f"Ajout à la bibliothèque {i}/{n} : {name}", 3000)
+        )
+        self._import_worker.finished.connect(
+            lambda result: self._on_initial_import_done(result, names, create_profile)
+        )
+        self._import_worker.failed.connect(
+            lambda msg: self.notify(f"Import interrompu : {msg}", error=True)
+        )
+        self._import_thread = make_worker_thread(self._import_worker)
+        self._import_thread.start()
+
+    def _on_initial_import_done(self, result, names: list[str], create_profile: bool) -> None:
+        if create_profile:
+            try:
+                prof = self.state.new_profile("Partie actuelle")
+                prof.mods = names
+                prof.mark_played()  # c'est ce qui est installé dans le jeu
+                prof.save()
+            except (FileExistsError, ValueError):
+                pass
+            self._refresh_profiles_ui()
+        self._start_scan()
+        text = f"{len(result.added)} mod(s) ajouté(s) à la bibliothèque."
+        if result.errors:
+            text += f" {len(result.errors)} erreur(s), voir le journal."
+            for name, msg in result.errors:
+                log.error("Import initial, %s : %s", name, msg)
+        self.notify(text, error=bool(result.errors))
+
+    # ============================================================ palette
+
+    def _open_palette(self) -> None:
+        from .commands import build_commands
+        from .widgets.palette import CommandPalette
+
+        catalog = self.state.catalog
+        mods = (
+            [(e.filename, e.display_title) for e in catalog.entries.values()] if catalog else []
+        )
+        commands = build_commands(
+            [(p.slug, p.name, len(self.state.effective_filenames(p))) for p in self.state.profiles],
+            [(c.slug, c.name, len(c.mods)) for c in self.state.collections],
+            mods,
+        )
+        palette = CommandPalette(commands, self)
+        palette.command_chosen.connect(self._run_command)
+        geo = self.geometry()
+        palette.adjustSize()
+        palette.move(geo.x() + (geo.width() - palette.width()) // 2, geo.y() + 80)
+        palette.exec()
+
+    def _run_command(self, key: str) -> None:
+        kind, _, arg = key.partition(":")
+        if kind == "play":
+            self._on_home_play(arg)
+        elif kind == "open":
+            self._on_home_open(arg)
+        elif kind == "collection":
+            self._open_collection(arg)
+        elif kind == "mod" and self.state.catalog is not None:
+            entry = self.state.catalog.get(arg)
+            if entry is not None:
+                self._show_mod_details(entry)
+        elif kind == "go":
+            if arg in (s.key for s in nav.SECTIONS):
+                self._show_section(arg)
+            else:
+                self._show_feature_tab(arg)
+        elif kind == "action":
+            actions = {
+                "new_profile": self._on_new_profile,
+                "new_collection": self._on_new_collection,
+                "rescan": self._on_rescan,
+                "export": self._on_export_config,
+                "import": self._on_import_config,
+                "log": self._on_open_log_dir,
+                "theme": lambda: self._show_section(nav.SECTION_SETTINGS),
+            }
+            action = actions.get(arg)
+            if action is not None:
+                action()
 
     def _build_all_mods_panel(self) -> QWidget:
         from .widgets.library_table import LibraryTable
@@ -1135,17 +1340,54 @@ class MainWindow(QMainWindow):
         self.activate_btn.setText(f"Jouer · {name}" if name else "Jouer")
 
     def _on_new_profile(self) -> None:
-        name, ok = QInputDialog.getText(self, "Nouveau profil", "Nom du profil :")
-        if not ok or not name.strip():
+        """Nom, carte, collections et carrière sur un seul écran."""
+        from .career.templates import SCENARIOS
+        from .widgets.new_profile_dialog import NewProfileDialog
+
+        maps = [
+            (self.editor.map_combo.itemText(i), self.editor.map_combo.itemData(i))
+            for i in range(self.editor.map_combo.count())
+        ]
+        collections = [(c.slug, c.name, len(c.mods)) for c in self.state.collections]
+        scenarios: list[tuple[str, str | None]] = [("Aucune", None)]
+        scenarios += [(label, key) for label, key in SCENARIOS if key]
+        dialog = NewProfileDialog(
+            maps, collections, scenarios, {p.name for p in self.state.profiles}, self
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted:
             return
+        choice = dialog.choice()
         try:
-            profile = self.state.new_profile(name.strip())
+            profile = self.state.new_profile(choice.name)
         except (FileExistsError, ValueError) as exc:
             QMessageBox.warning(self, "Création impossible", str(exc))
             return
+        if choice.map_data and choice.map_data.startswith("official:"):
+            profile.official_map = choice.map_data.removeprefix("official:")
+        elif choice.map_data:
+            profile.map_mod = choice.map_data
+        profile.collections = list(choice.collections)
+        profile.save()
+        if choice.scenario:
+            self._create_career(profile, choice.scenario)
         self._refresh_profiles_ui()
-        self._ask_career_scenario(profile)
         self._request_backup()
+        self._on_home_open(profile.slug)
+        self.notify(f"Profil « {profile.name} » créé.")
+
+    def _create_career(self, profile, template_key: str) -> None:
+        from .career.store import Career, CareerError
+        from .career.templates import build_template
+
+        dirs = self._career_dir_and_user_dir(profile)
+        if dirs is None:
+            return
+        try:
+            career = Career.load(dirs[0])
+            career.add_objectives(build_template(template_key))
+            career.save()
+        except (CareerError, OSError) as exc:
+            self.notify(f"Objectifs de carrière non créés : {exc}", error=True)
 
     def _ask_career_scenario(self, profile) -> None:
         """Offer a career type for a new profile and create its starting objectives."""
@@ -1476,6 +1718,11 @@ class MainWindow(QMainWindow):
     # ============================================================= scan
 
     def _start_scan(self) -> None:
+        # Un scan déjà en cours : on en relancera un à sa fin. Remplacer le QThread
+        # en cours le détruisait en pleine exécution et l'appli plantait.
+        if self._scan_thread is not None and self._scan_thread.isRunning():
+            self._scan_pending = True
+            return
         try:
             game = self.state.game
         except KeyError:
@@ -1495,8 +1742,14 @@ class MainWindow(QMainWindow):
         self._scan_worker.finished.connect(self._on_scan_done)
         self._scan_worker.failed.connect(self._on_scan_failed)
         self._scan_thread = make_worker_thread(self._scan_worker)
+        self._scan_thread.finished.connect(self._on_scan_thread_finished)
         self._scan_thread.start()
         self._status("Scan de la bibliothèque…")
+
+    def _on_scan_thread_finished(self) -> None:
+        if self._scan_pending:
+            self._scan_pending = False
+            self._start_scan()
 
     def _on_scan_done(self, catalog: object) -> None:
         from .profiles.catalog import Catalog as _Catalog
@@ -1755,6 +2008,11 @@ class MainWindow(QMainWindow):
     # ========================================================== activate
 
     def _on_activate(self) -> None:
+        if self._activating_slug is not None:
+            # Une activation tourne déjà (relancée depuis la palette, par ex.) :
+            # en démarrer une 2e détruirait son thread en pleine exécution.
+            self.notify("Une activation est déjà en cours.")
+            return
         if self.state.current_profile is None:
             self.notify("Sélectionne un profil.")
             return

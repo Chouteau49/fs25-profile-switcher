@@ -31,6 +31,8 @@ sinon elle retombe automatiquement sur une copie classique.
 - **Choix de carte** : la carte associée au profil est mise en avant (icône + nom), y compris les cartes officielles et DLC (vignette du jeu / de Steam). L'application rouvre le dernier profil joué.
 - **Activation instantanée** : hardlinks NTFS, fallback automatique sur copie.
 - **Lancement Steam** : bouton « Jouer » qui démarre le jeu via `steam://rungameid/<id>`.
+- **Assistant de premier lancement et Paramètres** : aucun fichier à éditer à la main.
+- **Palette de commandes (Ctrl+K)** : jouer, ouvrir un profil, retrouver un mod, lancer une action au clavier.
 - **Thème clair, sombre ou « comme Windows »**, icônes vectorielles, palette lisible (contraste vérifié).
 - **Sync au retour de partie** : à la fermeture de FS25, l'app détecte les mods ajoutés, supprimés, et les mods mis à jour en jeu (ModHub), puis propose l'action adaptée.
 - **Détails des mods** : aperçu de la fiche modDesc (icône, version, description, multijoueur).
@@ -44,8 +46,10 @@ sinon elle retombe automatiquement sur une copie classique.
 2. Télécharge `fsmods-gui.exe` (~50 Mo).
 3. Pose-le où tu veux et lance-le.
 
-Au premier lancement il affiche « Config manquante » : crée à côté de l'exe un
-fichier `config.yaml` à partir de [config.example.yaml](config.example.yaml) :
+Au premier lancement, un **assistant** détecte le jeu et son dossier mods, propose
+un dossier de bibliothèque sur le même disque, et peut y ajouter tes mods actuels.
+Tout se modifie ensuite dans **Paramètres**. Pour régler à la main, le fichier écrit
+est `%APPDATA%\fsmods-gui\config.yaml` (modèle : [config.example.yaml](config.example.yaml)) :
 
 ```yaml
 default_game: fs25

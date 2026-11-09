@@ -10,7 +10,7 @@ changelog, messages de commit en FR / EN).
 Environnement : Windows, venv `.venv` (dev) ; `.venv313` sert au build Nuitka.
 
 ```powershell
-.venv\Scripts\python -m pytest -q                 # 378 tests, ~5 s, doivent rester verts
+.venv\Scripts\python -m pytest -q                 # ~560 tests, ~11 s, doivent rester verts
 .venv\Scripts\python -m pytest tests/test_career.py -q
 .venv\Scripts\python -m ruff check .              # lint : base propre (0 erreur), doit le rester
 .venv\Scripts\python -m mypy                      # types : base propre (0 erreur), doit le rester
@@ -31,7 +31,7 @@ Trois couches, **la logique métier ne dépend jamais de Qt** (sauf `workers.py`
 
 ```text
 fsmods_gui/
-  config.py        Config + GameProfile (frozen) ; chemins dérivés : library_mods_dir,
+  config.py        Config + GameProfile (frozen), source_path ; chemins dérivés : library_mods_dir,
                    library_profiles_dir, library_collections_dir, library_careers_dir,
                    library_autodrive_dir, library_cache_dir, new_mod_source_dirs...
   state.py         AppState : état partagé en mémoire (cfg, catalog, profiles, collections,
@@ -46,10 +46,18 @@ fsmods_gui/
   career/          système d'objectifs (pur, sans Qt) : stats (extraction savegame XML),
                    farmland_areas (surface des parcelles via le GRLE de la carte),
                    objectives (moteur de règles), templates, store, sync, history, formatting
-  workers.py       QObject + QThread (ScanWorker, activation, watcher process FS25, backup...)
-  main.py          bootstrap Qt (plugins Qt, config manquante) ; main_window.py (~1600 lignes)
-  widgets/         un fichier par vue / dialogue (career_panel, library_table, mod_gallery...)
-tests/             pytest, un fichier par module de logique ; quasi aucun test de widget
+  theme.py         jetons de couleur clair/sombre, contraste WCAG, feuille de style (pur)
+  navigation.py    espaces de la barre latérale et textes de la barre de session (pur)
+  home.py, diagnostics.py, editor_notices.py, commands.py, config_setup.py
+                   données de l'accueil, des cartes Diagnostic, des encadrés de la page
+                   Profil, de la palette Ctrl+K, de l'assistant / Paramètres (purs)
+  career/presentation.py  objectifs en cartes (groupes, textes)
+  workers.py       QObject + QThread (ScanWorker, activation, watcher process FS25, backup,
+                   import initial...)
+  main.py          bootstrap Qt (plugins Qt, assistant si config absente) ; main_window.py
+  widgets/         un fichier par vue / dialogue ; theming.py (applique le thème), icons.py
+                   (icônes SVG), shell.py (barre latérale + session), toast.py (notifications)
+tests/             pytest, un fichier par module ; tests de widgets en QT_QPA_PLATFORM=offscreen
 ```
 
 Données utilisateur (hors dépôt) sous `<library_dir>/` : `mods/*.zip`, `profiles/*.json`,
@@ -67,6 +75,13 @@ fichier**, jamais par chemin absolu.
   le *pourquoi*, type hints `X | None`, dataclasses, Python ≥ 3.11. Ruff : ligne 100,
   règles E,F,I,UP,B,SIM, guillemets doubles.
 - **Textes UI, docstrings de domaine et docs en français** ; identifiants en anglais.
+- **Couleurs : jamais en dur** dans un widget. Lire `theme.current()` ou poser une propriété
+  `role` / `variant` habillée par `theme.build_stylesheet` ; icônes via `widgets/icons.py`
+  (`icons.bind` pour qu'elles suivent le thème), pas d'emoji dans l'interface.
+- **Informations : notification** (`self.notify(...)` / `toast.notify(widget, ...)`), avec
+  « Annuler » quand c'est réversible ; fenêtre modale seulement pour une décision.
+- Un worker ne se relance pas tant que son QThread tourne (sinon plantage dur) : mettre en
+  attente, comme `_start_scan` / `_scan_pending`.
 - Parsing XML de sauvegardes / modDesc : **best-effort**, jamais d'exception qui remonte
   à l'UI pour un fichier tiers mal formé ; une valeur illisible = « non disponible »
   (`Q_NA`, `None`), **jamais 0** (principe fort du module career).

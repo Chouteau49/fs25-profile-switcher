@@ -179,3 +179,28 @@ def test_career_view_choice_survives_rebuild(window):
     rebuilt = window._feature_panels[nav.FEATURE_CAREER]
     assert rebuilt.views.currentIndex() == 1
     rebuilt.show_view(0)
+
+
+def test_rescan_while_scanning_does_not_crash(window):
+    # Régression : un 2e scan lancé pendant le 1er remplaçait le QThread en cours,
+    # détruit en pleine exécution → plantage dur de l'appli (bouton Rescanner,
+    # enregistrement des Paramètres).
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    window._start_scan()
+    window._start_scan()
+    window._start_scan()
+    loop = QEventLoop()
+    QTimer.singleShot(1500, loop.quit)
+    loop.exec()
+    assert window.state.catalog is not None
+    assert not window._scan_pending
+
+
+def test_activate_refused_while_an_activation_runs(window):
+    window._activating_slug = "montagne"
+    try:
+        window._on_activate()
+        assert window.toast.message() == "Une activation est déjà en cours."
+    finally:
+        window._activating_slug = None

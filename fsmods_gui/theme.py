@@ -479,6 +479,17 @@ QPushButton[role="segment"]:checked {{
     background: {t.surface}; color: {t.text}; font-weight: 600;
 }}
 QLabel[role="dot"][level="info"] {{ background: {t.border_strong}; }}
+QPushButton[role="choice"] {{ padding: 6px 14px; }}
+QPushButton[role="choice"]:checked {{
+    background: {t.accent_soft}; color: {t.accent_soft_text}; border: 1px solid {t.accent};
+    font-weight: 600;
+}}
+QDialog[role="palette"] {{
+    background: {t.surface}; border: 1px solid {t.border_strong}; border-radius: 12px;
+}}
+QLineEdit[role="palette-input"] {{ font-size: 15px; padding: 8px 10px; }}
+QListWidget[role="palette-list"] {{ border: 0; background: transparent; }}
+QListWidget[role="palette-list"]::item {{ padding: 8px 10px; }}
 QWidget[role="notice"] {{ background: {t.blue_soft}; border-radius: 12px; }}
 QWidget[role="notice"][level="error"] {{ background: {t.red_soft}; }}
 QWidget[role="notice"] QLabel {{ color: {t.blue_text}; }}
