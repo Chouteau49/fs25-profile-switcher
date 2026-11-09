@@ -933,3 +933,58 @@ def test_history_is_kept_per_farm(tmp_path: Path) -> None:
     assert [v for _t, v in series(career.history, "money", "2")] == [5.0]
     legacy = [{"t": "2026-01-01T10:00:00", "values": {"money": 9}}]
     assert [v for _t, v in series(legacy, "money", "2")] == [9.0]  # older entries stay visible
+
+
+def test_young_animals_are_read_per_group_under_a_year(tmp_path: Path) -> None:
+    sg = make_save(tmp_path)
+    _write(sg, "placeables.xml", """<placeables>
+      <placeable filename="data/placeables/barn.xml" farmId="1" price="1">
+        <husbandryAnimals><clusters>
+          <animal subType="COW_HIGHLAND_CATTLE" numAnimals="112" age="14"/>
+          <animal subType="COW_HIGHLAND_CATTLE" numAnimals="45" age="28"/>
+          <animal subType="COW_HIGHLAND_CATTLE" numAnimals="45" age="1"/>
+        </clusters></husbandryAnimals>
+      </placeable></placeables>""")
+    s = extract_stats(sg)
+    assert s.value("animals.cow") == 202
+    assert s.value("animals.young") == 45
+    assert s.get("animals.young").quality == Q_CALC
+
+
+def test_fish_farms_and_species_read_from_the_save(tmp_path: Path) -> None:
+    sg = make_save(tmp_path)
+    _write(sg, "placeables.xml", """<placeables>
+      <placeable filename="$moddir$FS25_Pack/fishFarmLake.xml" farmId="1" price="1">
+        <fillLevel fillType="TROUT" fillLevel="500"/></placeable>
+      <placeable filename="$moddir$FS25_Pack/fishFarmLake.xml" farmId="1" price="1"/>
+      <placeable filename="$moddir$FS25_Pack/fishFarmBuilding.xml" farmId="1" price="1"/>
+      <placeable filename="data/placeables/cowbarn.xml" farmId="2" price="1"/>
+    </placeables>""")
+    s = extract_stats(sg)
+    assert s.value("fish.farms") == 2  # the two lakes, not the building
+    assert s.value("fish.trout.farms") == 1
+    assert s.get("fish.trout.farms").quality == Q_CALC
+    # no salmon in stock, yet two lakes exist: unknown, not 0
+    assert s.value("fish.salmon.farms") is None
+
+
+def test_no_fish_farm_means_zero_fish_farms(tmp_path: Path) -> None:
+    s = extract_stats(make_save(tmp_path))
+    assert s.value("fish.farms") == 0
+    assert s.value("fish.salmon.farms") == 0
+
+
+def test_stock_in_silo_nodes_is_read_like_fill_levels(tmp_path: Path) -> None:
+    # Real FS25 saves store silo and pond contents in <node fillType=… fillLevel=…/>.
+    sg = make_save(tmp_path)
+    _write(sg, "placeables.xml", """<placeables>
+      <placeable filename="data/placeables/silo.xml" farmId="1" price="1">
+        <silo><storage index="1" farmId="1"><node fillType="WHEAT" fillLevel="72269.09"/></storage></silo>
+      </placeable>
+      <placeable filename="$moddir$FS25_Pack/fishFarmLake.xml" farmId="1" price="1">
+        <storage><node fillType="SALMONYOUNG" fillLevel="414.5"/></storage>
+      </placeable></placeables>""")
+    s = extract_stats(sg)
+    assert s.value("stock.wheat") == pytest.approx(72269.09)
+    assert s.value("stock.salmonyoung") == pytest.approx(414.5)
+    assert s.value("fish.salmon.farms") == 1

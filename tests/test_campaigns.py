@@ -28,13 +28,17 @@ def test_kinlaig_has_twelve_steps_and_a_final_objective_needing_all_of_them():
 
 def test_kinlaig_is_completed_step_by_step_then_the_final_objective():
     objs = build_kinlaig()
-    evaluate_objectives(objs, _snap())
+    empty_barn = _snap(stock__drygrass_windrow=0.0)  # the hay step is measured on the save
+    evaluate_objectives(objs, empty_barn)
     final = objs[-1]
     assert complete_manually(final, MODE_OBJECTIVES) is False  # locked until the steps are done
     for obj in objs[:-1]:
-        evaluate_objectives(objs, _snap())  # unlock the next steps
+        evaluate_objectives(objs, empty_barn)  # unlock the next steps
+        if obj.condition is not None:
+            assert obj.status == ST_COMPLETED, obj.id  # measured, not validated by hand
+            continue
         assert complete_manually(obj, MODE_OBJECTIVES), obj.id
-    evaluate_objectives(objs, _snap())
+    evaluate_objectives(objs, empty_barn)
     assert complete_manually(final, MODE_OBJECTIVES)
     assert final.status == ST_COMPLETED
 
@@ -65,3 +69,27 @@ def test_campaign_registry_is_consistent():
     assert len(keys) == len(set(keys))
     for campaign in CAMPAIGNS:
         assert campaign.build("")  # every campaign builds at least one objective
+
+
+def test_hay_step_is_measured_on_the_remaining_stock():
+    from fsmods_gui.career.objectives import evaluate
+
+    hay = next(o for o in build_kinlaig() if o.id == "kinlaig.hay")
+    assert hay.condition is not None and hay.condition.stat == "stock.drygrass_windrow"
+    assert evaluate(hay.condition, _snap(stock__drygrass_windrow=22500.0)).satisfied is False
+    assert evaluate(hay.condition, _snap(stock__drygrass_windrow=0.0)).satisfied is True
+
+
+def test_hay_absent_from_the_save_counts_as_empty():
+    from fsmods_gui.career.objectives import evaluate
+
+    hay = next(o for o in build_kinlaig() if o.id == "kinlaig.hay")
+    snap = StatsSnapshot()
+    snap.complete_prefixes.add("stock.")  # the save lists every stock it has
+    assert evaluate(hay.condition, snap).satisfied is True
+
+
+def test_castle_step_says_it_is_entered_by_hand():
+    castle = next(o for o in build_kinlaig() if o.id == "kinlaig.castle")
+    assert castle.condition is None
+    assert "Saisie manuelle" in castle.description

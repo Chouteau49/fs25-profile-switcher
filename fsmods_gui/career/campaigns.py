@@ -2,8 +2,8 @@
 
 * « L'héritage des Highlands » (Kinlaig) : campagne de clôture. Surtout validée à la main
   (constructions, dernières récoltes, bilan) ; l'objectif final attend tous les autres.
-* « Pisciculture » : élevages de saumon et de truite. Les nombres d'élevages sont saisis
-  avec « Statistique manuelle… » : la sauvegarde ne les expose pas (encore) de façon vérifiée.
+* « Pisciculture » : élevages de saumon et de truite, déduits des bassins et des stocks
+  de la sauvegarde (un bassin n'est pas forcément un élevage : voir :mod:`stats`).
 * « Objectifs répétables » : les paliers de :mod:`repeats`, exposés comme une campagne.
 
 Pur, sans Qt.
@@ -40,17 +40,19 @@ def _manual(
     )
 
 
-def _at_least(
+def _measured(
     template: str, key: str, name: str, category: str, stat: str, target: float, *,
+    operator: str = ">=", description: str = "",
     requires: tuple[str, ...] = (), farm: str = "", difficulty: int = 2,
 ) -> Objective:
-    """Objective measured on a statistic: ``stat >= target``."""
+    """Objective measured on a statistic: ``stat <operator> target``."""
     sfx = _suffix(farm)
     return Objective(
         id=f"{template}.{key}{sfx}",
         name=name,
         category=category,
-        condition=Condition(stat=stat, operator=">=", target=target),
+        description=description,
+        condition=Condition(stat=stat, operator=operator, target=target),
         requires=[f"{template}.{r}{sfx}" for r in requires],
         difficulty=difficulty,
         farm=farm,
@@ -67,7 +69,8 @@ def build_kinlaig(farm: str = "") -> list[Objective]:
         return _manual(t, key, name, "general", desc, requires=requires, farm=farm, difficulty=3)
 
     steps = [
-        m("castle", "Construire le château", "Domaine : achever le château."),
+        m("castle", "Construire le château",
+          "Saisie manuelle : la sauvegarde ne donne pas l'état du château."),
         m("windmill", "Construire le moulin à vent", "Domaine : achever le moulin."),
         m("onions", "Première récolte d'oignons", "Nouvelle culture intégrée à l'exploitation."),
         m("onionProcessing", "Transformer une production d'oignons",
@@ -79,8 +82,10 @@ def build_kinlaig(farm: str = "") -> list[Objective]:
           "Plus aucun cheptel Highland à la fin de la campagne."),
         m("zeroAnimals", "Atteindre zéro animal",
           "Aucun animal dans l'exploitation.", "highlandSold"),
-        m("hay", "Valoriser tout le foin restant",
-          "Foin, fourrage et stocks alimentaires.", "zeroAnimals"),
+        _measured(t, "hay", "Valoriser tout le foin restant", "general",
+                  "stock.drygrass_windrow", 0, operator="<=",
+                  description="Mesuré sur le foin (andains) encore en stock.",
+                  requires=("zeroAnimals",), farm=farm, difficulty=3),
         m("productionsEnd", "Terminer les productions en cours", "Plus rien en cours de fabrication."),
         m("stocksEmpty", "Vider les stocks à liquider",
           "Ceux qui ne serviront plus.", "hay", "productionsEnd"),
@@ -103,11 +108,11 @@ def build_kinlaig(farm: str = "") -> list[Objective]:
 
 
 def build_fish(farm: str = "") -> list[Objective]:
-    """Pisciculture : élevages de saumon et de truite (chiffres saisis à la main)."""
+    """Pisciculture : élevages de saumon et de truite, lus dans la sauvegarde."""
     t = "fish"
 
     def n(key: str, name: str, stat: str, target: float, *requires: str) -> Objective:
-        return _at_least(t, key, name, "production", stat, target,
+        return _measured(t, key, name, "production", stat, target,
                          requires=requires, farm=farm)
 
     return [

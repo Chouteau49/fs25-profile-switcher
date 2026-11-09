@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.0] - 2026-11-09
+
+### Added
+
+- **Foin mesuré** : « Valoriser tout le foin restant » (campagne Kinlaig) est validé quand le stock d'andains (`DRYGRASS_WINDROW`) tombe à 0. Il n'est plus à cocher à la main.
+- **Jeunes animaux** : statistique `animals.young` (groupes de moins de 12 mois, âge lu sur chaque groupe).
+- **Pisciculture lue dans la sauvegarde** : `fish.farms` compte les bassins possédés (`fishFarmLake`, `fishFarm`) ; `fish.salmon.farms` et `fish.trout.farms` sont déduits des stocks de saumon et de truite. Sans stock d'une espèce alors que des bassins existent, la valeur reste « non disponible ». Un bassin n'est pas forcément un élevage.
+
+### Changed
+
+- Le château de la campagne Kinlaig est explicitement en saisie manuelle : la sauvegarde ne donne pas son état.
+
+### Fixed
+
+- **Stocks des silos et des bassins** : le contenu est écrit dans des balises `<node>`, qui n'étaient pas lues. Blé, colza, huile de colza, truite et saumon étaient donc invisibles ; ils sont lus maintenant.
 ## [0.18.0] - 2026-11-09
 
 ### Added

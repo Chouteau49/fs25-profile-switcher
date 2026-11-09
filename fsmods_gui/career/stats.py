@@ -171,6 +171,11 @@ class StatsSnapshot:
 # Family members the savegame can never reveal (so "absent" must stay unknown).
 UNDETECTABLE = frozenset({"animals.dog"})
 
+# A group younger than this (months) counts as young stock.
+YOUNG_AGE_MONTHS = 12
+# Placeable file stems of a fish pond or fish farm (its buildings are not farms).
+_FISH_FARM_STEMS = frozenset({"fishfarmlake", "fishfarm"})
+
 # --------------------------------------------------------------- stat catalog
 
 # Well-known statistics: key -> (label, unit, category). Anything not listed
@@ -194,6 +199,7 @@ STAT_DEFS: dict[str, tuple[str, str, str]] = {
     "animals.total": ("Animaux", "", "animals"),
     "animals.species": ("Espèces animales différentes", "", "animals"),
     "animals.beehives": ("Ruches", "", "animals"),
+    "animals.young": ("Jeunes animaux (moins de 12 mois)", "", "animals"),
     "placeables.count": ("Bâtiments / placeables", "", "buildings"),
     "placeables.value": ("Valeur d'achat des bâtiments", "€", "buildings"),
     "productions.count": ("Bâtiments de production", "", "production"),
@@ -611,6 +617,8 @@ def _extract_placeables(
     value = 0.0
     productions = 0
     beehives = 0
+    fish_farms = 0
+    young = 0.0
     species: dict[str, float] = {}
     stock: dict[str, float] = {}
     for placeable in root.iter("placeable"):
@@ -621,9 +629,12 @@ def _extract_placeables(
         value += _num(placeable.get("price")) or 0.0
         if "beehive" in filename.lower():
             beehives += 1
+        if _is_fish_farm(filename):
+            fish_farms += 1
         if next(placeable.iter("productionPoint"), None) is not None:
             productions += 1
-        for fill in placeable.iter("fillLevel"):
+        # Silos and ponds store their content in <node>, extensions in <fillLevel>.
+        for fill in (*placeable.iter("fillLevel"), *placeable.iter("node")):
             fill_type = (fill.get("fillType") or "").strip().lower()
             level = _num(fill.get("fillLevel") or fill.get("level"))
             if fill_type and level:
@@ -636,7 +647,11 @@ def _extract_placeables(
                 continue
             sp = sub.split("_", 1)[0].lower()
             n = _num(animal.get("numAnimals"))  # one <animal> entry = a group of numAnimals
-            species[sp] = species.get(sp, 0.0) + (n if n is not None else 1.0)
+            amount = n if n is not None else 1.0
+            species[sp] = species.get(sp, 0.0) + amount
+            age = _num(animal.get("age"))  # in months
+            if age is not None and age < YOUNG_AGE_MONTHS:
+                young += amount
 
     c.put("placeables.count", float(count))
     c.put("placeables.value", value, Q_CALC, "Somme des prix d'achat (sans dépréciation).")
@@ -658,6 +673,32 @@ def _extract_placeables(
         c.put(f"animals.{sp}", n)
     c.put("animals.total", sum(species.values()))
     c.put("animals.species", float(len(species)))
+    c.put("animals.young", young, Q_CALC, f"Groupes de moins de {YOUNG_AGE_MONTHS} mois.")
+    _put_fish(c, fish_farms, stock)
+
+
+def _is_fish_farm(filename: str) -> bool:
+    """A fish pond or fish farm placeable (not its buildings or food factory)."""
+    stem = Path(filename.replace("\\", "/")).stem.lower()
+    return stem in _FISH_FARM_STEMS
+
+
+def _put_fish(c: _Collector, fish_farms: int, stock: dict[str, float]) -> None:
+    """Fish farms from the save: ponds are counted, species are read from the stocks.
+
+    A pond counts as a farm here: the save does not say which ponds belong to which
+    farm. A species without stock while ponds exist is unknown (never 0).
+    """
+    note = "Bassins d'élevage possédés (fishFarmLake, fishFarm), lus sur les placeables."
+    c.put("fish.farms", float(fish_farms), Q_CALC, note)
+    for species, key in (("salmon", "fish.salmon.farms"), ("trout", "fish.trout.farms")):
+        present = any(name.startswith(species) for name, level in stock.items() if level > 0)
+        if present:
+            c.put(key, 1.0, Q_CALC, f"Déduit : du {species} est en stock dans tes bâtiments.")
+        elif fish_farms:
+            c.put(key, None, note=f"Aucun {species} en stock alors que des bassins existent.")
+        else:
+            c.put(key, 0.0, Q_CALC, "Aucun bassin d'élevage possédé.")
 
 
 def _extract_land(
