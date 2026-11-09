@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.0] - 2026-11-09
+
+### Added
+
+- **Détection des régressions** : si une statistique cumulée (contrats, hectares travaillés, revenus cumulés…) baisse entre deux synchronisations de la même ferme et de la même sauvegarde, la synchronisation le signale. Une valeur illisible n'est jamais comptée comme une régression.
+- **Journal des lectures** : chaque synchronisation laisse une entrée (statistiques lues, variations, anomalies), bornée aux 100 dernières, dans `statistics.json`.
+- **Record des objectifs** : un objectif « au moins X » garde le meilleur niveau atteint et sa date, même si la statistique redescend.
+- **Objectifs répétables** : paliers réguliers (contrats, revenus de contrats par 50 k€, heures de jeu par 4 h, hectares par 5 ha, animaux, véhicules, patrimoine). Chaque palier a son identifiant, donc sa propre récompense, et n'est versé qu'une fois.
+- **Défi « 2 M€ de revenus de contrats en 24 h de jeu »** : « Lancer un défi… » ouvre une fenêtre mesurée en heures de jeu. États : en cours, réussi, échoué, imprécis (cible atteinte mais lecture trop tardive pour dater le moment), indisponible.
+- **Campagnes** dans « Ajouter un modèle… » : « L'héritage des Highlands » (clôture en 12 étapes et un objectif final) et « Pisciculture » (élevages de saumon et de truite, saisis à la main).
+- **Mesure depuis l'activation** (côté logique) : un scénario peut ne compter que ce qui se passe après son lancement. Une statistique cumulée absente à ce moment rend l'objectif indisponible au lieu de compter le total de la sauvegarde.
+
+### Changed
+
+- Le tableau de bord affiche une section « Défis en fenêtre de temps » quand un défi existe.
+- Les statistiques de pisciculture (`fish.salmon.farms`, `fish.trout.farms`, `fish.farms`) s'affichent avec un libellé dans la saisie manuelle.
+
 ## [0.17.0] - 2026-11-09
 
 ### Added
