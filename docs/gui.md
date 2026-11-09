@@ -6,7 +6,7 @@ L'interface graphique `fsmods-gui` (du projet **fs25-profile-switcher**) permet 
 
 ```
 ┌─ Profils ───────┬─ Détails du profil ───────────────────────┐
-│ ► Montagne      │  ▶ Activer & lancer FS25                  │
+│ ► Montagne      │  ▶ Jouer · Montagne                       │
 │   Plaines       │  Nom    : Montagne                        │
 │   No Man's Land │  Carte  : FS25_Alpenland                  │
 │   + Nouveau     │  Notes  : …                               │
@@ -19,8 +19,9 @@ L'interface graphique `fsmods-gui` (du projet **fs25-profile-switcher**) permet 
 - **Profils** (gauche) : la liste de tes parties. Un fichier JSON par profil sous `library/profiles/`.
 - **Éditeur** (droite) : choisir la carte (un mod de carte, ou une carte officielle 🏛 du jeu / d'un DLC, avec sa vignette), ajouter / retirer des mods. Les modifications sont sauvegardées automatiquement.
 - **Au démarrage**, l'application sélectionne le dernier profil joué (activé).
-- **Activer & lancer FS25** : remplace le contenu de `Documents\My Games\FarmingSimulator2025\mods\` par les mods du profil (hardlinks NTFS instantanés), puis démarre FS25 via Steam. Un zip du dossier du jeu absent de la bibliothèque ou différent de sa copie n'est jamais supprimé : il est déplacé dans `_inbox` et « Nouveaux mods » propose de l'importer. L'activation est refusée tant que le jeu tourne.
-- **📝 Journal de l'appli** (barre d'outils) : ouvre `%LOCALAPPDATA%\fs25-profile-switcher\logs`. `fsmods-gui.log` garde les erreurs internes, `crash.log` les plantages durs. C'est le fichier à regarder (ou à envoyer) quand l'appli se comporte mal.
+- **Jouer · <profil>** (ex-« Activer & lancer ») : remplace le contenu de `Documents\My Games\FarmingSimulator2025\mods\` par les mods du profil (hardlinks NTFS instantanés), puis démarre FS25 via Steam. Un zip du dossier du jeu absent de la bibliothèque ou différent de sa copie n'est jamais supprimé : il est déplacé dans `_inbox` et « Nouveaux mods » propose de l'importer. L'activation est refusée tant que le jeu tourne.
+- **Thème** (barre d'outils) : clair, sombre ou « comme Windows » (suit le thème du système). Le choix est mémorisé.
+- **Journal de l'appli** (barre d'outils) : ouvre `%LOCALAPPDATA%\fs25-profile-switcher\logs`. `fsmods-gui.log` garde les erreurs internes, `crash.log` les plantages durs. C'est le fichier à regarder (ou à envoyer) quand l'appli se comporte mal.
 - **Synchronisation auto** : à la fermeture de FS25, un dialogue liste les mods ajoutés (téléchargés via ModHub en jeu) ou retirés, et te demande comment les ranger.
 
 ## Bibliothèque centrale
@@ -90,7 +91,7 @@ games:
     steam_app_id: 2300320
 ```
 
-Les champs `library_dir` et `steam_app_id` sont obligatoires (le premier pour stocker bibliothèque + profils, le second pour le bouton « Activer & lancer »).
+Les champs `library_dir` et `steam_app_id` sont obligatoires (le premier pour stocker bibliothèque + profils, le second pour le bouton « Jouer »).
 
 | Jeu  | `steam_app_id` |
 |------|----------------|
@@ -102,7 +103,7 @@ Les champs `library_dir` et `steam_app_id` sont obligatoires (le premier pour st
 1. **Première fois** : copie tous tes `.zip` actuels dans `D:\FS25-Library\mods\`.
 2. Lance `fsmods-gui`. Un message « Bibliothèque : N mods » apparaît dans la barre de statut.
 3. **Crée un profil** (bouton ➕). Choisis la carte dans la liste déroulante, double-clique les mods à ajouter depuis la table de gauche.
-4. Clique **▶ Activer & lancer FS25**. Le dossier `mods/` du jeu est vidé puis re-rempli avec uniquement les mods du profil, et FS25 démarre via Steam.
+4. Clique **▶ Jouer**. Le dossier `mods/` du jeu est vidé puis re-rempli avec uniquement les mods du profil, et FS25 démarre via Steam.
 5. **Joue**. Tu peux télécharger des mods en jeu via ModHub.
 6. **Quitte FS25**. Quelques secondes plus tard, un dialogue apparaît :
    - les mods téléchargés en jeu → "Importer dans la bibliothèque + ce profil" (recommandé)

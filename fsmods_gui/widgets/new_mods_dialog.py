@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import theme
 from ..profiles.inbox import (
     STATUS_DUPLICATE,
     STATUS_NEW,
@@ -45,6 +46,7 @@ from ..profiles.testrunner import (
     STATUS_WARN as TEST_WARN,
 )
 from ..state import AppState, ImportPlan
+from . import icons
 
 _TEST_BADGE = {TEST_OK: "✅", TEST_WARN: "⚠", TEST_KO: "❌"}
 
@@ -101,14 +103,17 @@ class NewModsPanel(QWidget):
         all_btn.clicked.connect(self.grid.selectAll)
         none_btn = QPushButton("Tout désélectionner", self)
         none_btn.clicked.connect(self.grid.clearSelection)
-        check_btn = QPushButton("☑ Cocher la sélection", self)
+        check_btn = QPushButton("Cocher la sélection", self)
+        icons.bind(check_btn, "check-square")
         check_btn.clicked.connect(lambda: self._set_checked_for_selected(True))
-        uncheck_btn = QPushButton("☐ Décocher la sélection", self)
+        uncheck_btn = QPushButton("Décocher la sélection", self)
+        icons.bind(uncheck_btn, "square")
         uncheck_btn.clicked.connect(lambda: self._set_checked_for_selected(False))
         for b in (all_btn, none_btn, check_btn, uncheck_btn):
             sel_row.addWidget(b)
         sel_row.addStretch(1)
-        self.test_btn = QPushButton("🧪 Tester les mods", self)
+        self.test_btn = QPushButton("Tester les mods", self)
+        icons.bind(self.test_btn, "flask")
         self.test_btn.setToolTip(
             "Valider les mods sélectionnés (ou tous) AVANT de les importer : "
             "intégrité du zip, modDesc.xml, icône, textures… Un badge ✅/⚠/❌ "
@@ -116,7 +121,8 @@ class NewModsPanel(QWidget):
         )
         self.test_btn.clicked.connect(self._on_test)
         sel_row.addWidget(self.test_btn)
-        self.delete_dl_btn = QPushButton("🗑 Supprimer le téléchargement", self)
+        self.delete_dl_btn = QPushButton("Supprimer le téléchargement", self)
+        icons.bind(self.delete_dl_btn, "trash")
         self.delete_dl_btn.setToolTip(
             "Supprimer le fichier .zip sélectionné de son dossier de téléchargement "
             "(Téléchargements / new_mods). N'affecte pas la bibliothèque."
@@ -157,7 +163,7 @@ class NewModsPanel(QWidget):
             self,
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("QLabel { color: #888; }")
+        hint.setProperty("role", "muted")
         right_l.addWidget(hint)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -167,9 +173,12 @@ class NewModsPanel(QWidget):
         splitter.setStretchFactor(1, 2)
 
         # ---- buttons
-        rescan_btn = QPushButton("🔄 Rescanner", self)
+        rescan_btn = QPushButton("Rescanner", self)
+        icons.bind(rescan_btn, "refresh")
         rescan_btn.clicked.connect(self.rescan_requested.emit)
-        self.import_btn = QPushButton("📥 Importer les mods cochés", self)
+        self.import_btn = QPushButton("Importer les mods cochés", self)
+        self.import_btn.setProperty("variant", "primary")
+        icons.bind(self.import_btn, "download", icons.ROLE_ON_ACCENT)
         self.import_btn.setToolTip(
             "Importer les mods cochés ; la vue reste ouverte pour continuer "
             "avec les autres."
@@ -182,7 +191,7 @@ class NewModsPanel(QWidget):
 
         self.result_label = QLabel(self)
         self.result_label.setWordWrap(True)
-        self.result_label.setStyleSheet("QLabel { color: #2f855a; }")
+        self.result_label.setProperty("role", "success")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -216,7 +225,7 @@ class NewModsPanel(QWidget):
             if icon is not None:
                 item.setIcon(icon)
             if pm.status == STATUS_DUPLICATE:
-                item.setForeground(QBrush(QColor("#999")))
+                item.setForeground(QBrush(QColor(theme.current().muted)))
             item.setToolTip(self._base_tooltip(pm))
             self._assign[pm.filename] = {"p": set(), "c": set()}
             self.grid.addItem(item)
@@ -462,9 +471,9 @@ class NewModsPanel(QWidget):
         menu = QMenu(self)
         n = len(self._selected_items())
         act = menu.addAction(
-            f"🗑 Supprimer le téléchargement ({n})"
+            f"Supprimer le téléchargement ({n})"
             if n > 1
-            else "🗑 Supprimer le fichier téléchargé…"
+            else "Supprimer le fichier téléchargé…"
         )
         act.triggered.connect(self._on_delete_downloads)
         menu.exec(self.grid.viewport().mapToGlobal(pos))
@@ -550,7 +559,7 @@ class NewModsPanel(QWidget):
             )
             item.setToolTip(self._base_tooltip(pm) + "\n\n" + self._test_detail(res))
             if res.status == TEST_KO:
-                item.setForeground(QBrush(QColor("#c0392b")))
+                item.setForeground(QBrush(QColor(theme.current().red_text)))
         self._suppress = False
         ok = sum(1 for r in results if r.status == TEST_OK)
         warn = sum(1 for r in results if r.status == TEST_WARN)
@@ -576,8 +585,9 @@ class NewModsPanel(QWidget):
         return "\n".join(lines)
 
     def flash_status(self, message: str, *, error: bool = False) -> None:
-        color = "#c53030" if error else "#2f855a"
-        self.result_label.setStyleSheet(f"QLabel {{ color: {color}; }}")
+        self.result_label.setProperty("role", "error" if error else "success")
+        self.result_label.style().unpolish(self.result_label)
+        self.result_label.style().polish(self.result_label)
         self.result_label.setText(message)
 
     # ----------------------------------------------------------------- result

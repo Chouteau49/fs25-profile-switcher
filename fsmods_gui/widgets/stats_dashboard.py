@@ -113,9 +113,9 @@ class StatsPanel(QWidget):
         for i, (label, value) in enumerate(cards):
             cell = QVBoxLayout()
             val = QLabel(value)
-            val.setStyleSheet("font-size: 18px; font-weight: 700;")
+            val.setProperty("role", "kpi")
             cap = QLabel(label)
-            cap.setStyleSheet("color: #888;")
+            cap.setProperty("role", "muted")
             cell.addWidget(val)
             cell.addWidget(cap)
             wrap = QWidget()

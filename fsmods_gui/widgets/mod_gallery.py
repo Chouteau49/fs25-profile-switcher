@@ -47,13 +47,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import theme
 from ..profiles.catalog import Catalog, CatalogEntry
+from . import icons
 from .library_table import (
     CARD_H,
     CARD_PAD,
     CARD_THUMB,
     CARD_W,
     _make_searchable_combo,
+    draw_placeholder,
 )
 
 _FILTER_ALL = "__all__"
@@ -71,9 +74,6 @@ ROLE_KIND = int(Qt.ItemDataRole.UserRole) + 2
 ROLE_EXCLUDED = int(Qt.ItemDataRole.UserRole) + 3
 ROLE_SOURCES = int(Qt.ItemDataRole.UserRole) + 4
 
-_INHERITED_FG = QColor(70, 110, 200)
-_EXCLUDED_FG = QColor(150, 150, 150)
-_MISSING_FG = QColor(220, 80, 80)
 
 
 AnyIndex = QModelIndex | QPersistentModelIndex  # what Qt's model API accepts
@@ -166,12 +166,13 @@ class ModListModel(QAbstractListModel):
                 return "Hérité d'une collection — clic droit pour exclure"
             return item.filename
         if role == Qt.ItemDataRole.ForegroundRole:
+            t = theme.current()
             if item.missing:
-                return _MISSING_FG
+                return QColor(t.red_text)
             if item.kind == KIND_INHERITED and item.excluded:
-                return _EXCLUDED_FG
+                return QColor(t.muted)
             if item.kind == KIND_INHERITED:
-                return _INHERITED_FG
+                return QColor(t.blue_text)
             return None
         if role == Qt.ItemDataRole.FontRole and item.excluded:
             font = QFont()
@@ -188,6 +189,25 @@ class ModListModel(QAbstractListModel):
         if role == ROLE_SOURCES:
             return item.sources
         return None
+
+
+def draw_pill(
+    painter: QPainter, base_font: QFont, top_left, text: str, bg: str, fg: str
+) -> None:
+    """Petite pastille de texte (« Carte », « Hérité »…) dans le coin d'une vignette."""
+    font = QFont(base_font)
+    font.setPointSizeF(max(7.0, base_font.pointSizeF() - 1.5))
+    font.setBold(True)
+    painter.setFont(font)
+    metrics = painter.fontMetrics()
+    w = metrics.horizontalAdvance(text) + 12
+    h = metrics.height() + 4
+    pill = QRect(top_left.x(), top_left.y(), w, h)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(bg))
+    painter.drawRoundedRect(pill, h / 2, h / 2)
+    painter.setPen(QPen(QColor(fg)))
+    painter.drawText(pill, Qt.AlignmentFlag.AlignCenter, text)
 
 
 class ContentCardDelegate(QStyledItemDelegate):
@@ -234,23 +254,19 @@ class ContentCardDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
 
-        if selected:
-            bg = option.palette.highlight().color()
-            border = bg.lighter(120)
-        elif entry is None:
-            bg = QColor("#2a2424")
-            border = _MISSING_FG
-        elif kind == KIND_INHERITED and not excluded:
-            bg = QColor("#22293a") if not hovered else QColor("#2b3550")
-            border = _INHERITED_FG
-        else:
-            bg = QColor("#2a2a2a") if not hovered else QColor("#343434")
-            border = QColor("#555") if not hovered else QColor("#7a7a7a")
+        t = theme.current()
+        style = theme.card_style(
+            t,
+            selected=selected,
+            hovered=hovered,
+            missing=entry is None,
+            inherited=kind == KIND_INHERITED and not excluded,
+        )
         if excluded:
             painter.setOpacity(0.55)
-        painter.setBrush(bg)
-        painter.setPen(QPen(border, 1))
-        painter.drawRoundedRect(rect, 8, 8)
+        painter.setBrush(QColor(style.bg))
+        painter.setPen(QPen(QColor(style.border), 1))
+        painter.drawRoundedRect(rect, 10, 10)
 
         thumb_zone = QRect(
             rect.left() + CARD_PAD, rect.top() + CARD_PAD, CARD_THUMB, CARD_THUMB
@@ -261,36 +277,26 @@ class ContentCardDelegate(QStyledItemDelegate):
             py = thumb_zone.top() + (thumb_zone.height() - pix.height()) // 2
             painter.drawPixmap(px, py, pix)
         else:
-            painter.setPen(QPen(QColor("#888")))
-            painter.drawText(
+            draw_placeholder(
+                painter,
                 thumb_zone,
-                Qt.AlignmentFlag.AlignCenter,
-                "⚠" if entry is None else "🧩",
+                "alert" if entry is None else "puzzle",
+                t.red if entry is None else t.muted,
             )
 
-        # Kind badge (top-left corner of the thumbnail)
+        # Kind badge (top-left corner of the thumbnail): a small text pill
         badge = ""
+        badge_bg, badge_fg = t.surface2, t.muted
         if kind == KIND_MAP:
-            badge = "🗺"
+            badge, badge_bg, badge_fg = "Carte", t.accent_soft, t.accent_soft_text
         elif kind == KIND_INHERITED:
-            badge = "🔗"
+            badge, badge_bg, badge_fg = "Hérité", t.blue_soft, t.blue_text
         if excluded:
-            badge = "🚫"
+            badge, badge_bg, badge_fg = "Exclu", t.surface2, t.muted
         if badge:
-            badge_font = QFont(option.font)
-            badge_font.setPointSizeF(option.font.pointSizeF() + 2)
-            painter.setFont(badge_font)
-            painter.drawText(
-                thumb_zone.adjusted(2, 0, 0, 0),
-                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft,
-                badge,
-            )
+            draw_pill(painter, option.font, thumb_zone.topLeft(), badge, badge_bg, badge_fg)
 
-        text_color = (
-            option.palette.highlightedText().color()
-            if selected
-            else (_MISSING_FG if entry is None else QColor("#e6e6e6"))
-        )
+        text_color = QColor(style.title)
 
         title_rect = QRect(
             rect.left() + CARD_PAD,
@@ -316,11 +322,10 @@ class ContentCardDelegate(QStyledItemDelegate):
         sub_font = QFont(option.font)
         sub_font.setPointSizeF(max(7.0, option.font.pointSizeF() - 1))
         painter.setFont(sub_font)
+        painter.setPen(QPen(QColor(style.subtitle)))
         if entry is None:
-            painter.setPen(QPen(_MISSING_FG))
             sub = "absent de la bibliothèque"
         else:
-            painter.setPen(QPen(QColor("#9aa0a6") if not selected else text_color))
             sub = entry.category
             if entry.type:
                 sub = f"{sub} · {entry.type}"
@@ -381,7 +386,8 @@ class ModContentPanel(QWidget):
         self.select_all_btn.setText("Tout sélectionner")
         self.select_all_btn.setToolTip("Sélectionner tous les mods affichés")
         self.select_all_btn.clicked.connect(self.view_select_all)
-        self.remove_btn = QPushButton("🗑 Retirer la sélection", self)
+        self.remove_btn = QPushButton("Retirer la sélection", self)
+        icons.bind(self.remove_btn, "trash")
         self.remove_btn.setToolTip(
             "Retirer du profil / de la collection les mods sélectionnés "
             "(n'efface aucun fichier de la bibliothèque)."
@@ -389,12 +395,14 @@ class ModContentPanel(QWidget):
         self.remove_btn.setEnabled(False)
         self.remove_btn.clicked.connect(self._confirm_remove)
         self.list_btn = QToolButton(self)
-        self.list_btn.setText("☰")
+        icons.bind(self.list_btn, "list")
+        self.list_btn.setToolTip("Liste")
         self.list_btn.setToolTip("Vue liste")
         self.list_btn.setCheckable(True)
         self.list_btn.clicked.connect(lambda: self.set_view_mode("list"))
         self.grid_btn = QToolButton(self)
-        self.grid_btn.setText("▦")
+        icons.bind(self.grid_btn, "grid")
+        self.grid_btn.setToolTip("Galerie")
         self.grid_btn.setToolTip("Vue galerie (grandes vignettes)")
         self.grid_btn.setCheckable(True)
         self.grid_btn.setChecked(True)
@@ -563,7 +571,7 @@ class ModContentPanel(QWidget):
         n = len(names)
         self.remove_btn.setEnabled(n > 0)
         self.remove_btn.setText(
-            f"🗑 Retirer la sélection ({n})" if n else "🗑 Retirer la sélection"
+            f"Retirer la sélection ({n})" if n else "Retirer la sélection"
         )
         self.selection_changed.emit(names)
 
@@ -585,12 +593,14 @@ class ModContentPanel(QWidget):
             if item is not None:
                 if item.kind == KIND_INHERITED:
                     if item.excluded:
-                        act = menu.addAction("↩ Réintégrer dans ce profil")
+                        act = menu.addAction("Réintégrer dans ce profil")
+                        icons.bind(act, "refresh")
                         act.triggered.connect(
                             lambda: self.exclude_requested.emit(item.filename, False)
                         )
                     else:
-                        act = menu.addAction("🚫 Exclure de ce profil")
+                        act = menu.addAction("Exclure de ce profil")
+                        icons.bind(act, "ban")
                         act.triggered.connect(
                             lambda: self.exclude_requested.emit(item.filename, True)
                         )
@@ -604,9 +614,11 @@ class ModContentPanel(QWidget):
                     act.triggered.connect(self._emit_remove)
                 # Push the selected mod(s) into another profile / a collection.
                 menu.addSeparator()
-                add_prof_act = menu.addAction("➕ Ajouter à un profil…")
+                add_prof_act = menu.addAction("Ajouter à un profil…")
+                icons.bind(add_prof_act, "plus")
                 add_prof_act.triggered.connect(self._emit_add_to_profile)
-                add_coll_act = menu.addAction("🗂️ Ajouter à une collection…")
+                add_coll_act = menu.addAction("Ajouter à une collection…")
+                icons.bind(add_coll_act, "collection")
                 add_coll_act.triggered.connect(self._emit_add_to_collection)
         if not menu.isEmpty():
             menu.exec_(self.view.viewport().mapToGlobal(pos))

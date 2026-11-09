@@ -10,20 +10,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
-    QFileIconProvider,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStatusBar,
     QTabWidget,
@@ -43,6 +44,7 @@ from .profiles.sync_back import (
     snapshot_fingerprints,
 )
 from .state import AppState
+from .widgets import icons
 from .widgets.editor_panel import EditorPanel
 from .widgets.sync_dialog import (
     ADD_IGNORE,
@@ -84,37 +86,45 @@ class MainWindow(QMainWindow):
         self.profile_list = QListWidget(self)
         self.profile_list.currentRowChanged.connect(self._on_profile_row_changed)
 
-        new_btn = QPushButton("➕ Nouveau", self)
-        dup_btn = QPushButton("🗐 Dupliquer", self)
-        del_btn = QPushButton("✖ Supprimer", self)
+        new_btn = QPushButton("Nouveau", self)
+        dup_btn = QPushButton("Dupliquer", self)
+        del_btn = QPushButton("Supprimer", self)
+        icons.bind(new_btn, "plus")
+        icons.bind(dup_btn, "copy")
+        icons.bind(del_btn, "trash")
         new_btn.clicked.connect(self._on_new_profile)
         dup_btn.clicked.connect(self._on_duplicate_profile)
         del_btn.clicked.connect(self._on_delete_profile)
 
         self.collection_list = QListWidget(self)
         self.collection_list.currentRowChanged.connect(self._on_collection_row_changed)
-        cnew_btn = QPushButton("➕ Nouvelle", self)
-        cdup_btn = QPushButton("🗐 Dupliquer", self)
-        cdel_btn = QPushButton("✖ Supprimer", self)
+        cnew_btn = QPushButton("Nouvelle", self)
+        cdup_btn = QPushButton("Dupliquer", self)
+        cdel_btn = QPushButton("Supprimer", self)
+        icons.bind(cnew_btn, "plus")
+        icons.bind(cdup_btn, "copy")
+        icons.bind(cdel_btn, "trash")
         cnew_btn.clicked.connect(self._on_new_collection)
         cdup_btn.clicked.connect(self._on_duplicate_collection)
         cdel_btn.clicked.connect(self._on_delete_collection)
 
         left_panel = QWidget(self)
         left_layout = QVBoxLayout(left_panel)
-        self._left_version_label = QLabel(f"FS Profile Switcher v{__version__}", left_panel)
-        self._left_version_label.setStyleSheet(
-            "QLabel { font-weight: 700; color: #2b6cb0; padding-bottom: 4px; }"
-        )
-        left_layout.addWidget(self._left_version_label)
-        left_layout.addWidget(QLabel("Profils", left_panel))
+        left_layout.setContentsMargins(12, 12, 12, 12)
+        left_layout.setSpacing(8)
+        profiles_title = QLabel("PROFILS", left_panel)
+        profiles_title.setProperty("role", "section")
+        left_layout.addWidget(profiles_title)
         left_layout.addWidget(self.profile_list, 2)
         btn_row = QHBoxLayout()
         btn_row.addWidget(new_btn)
         btn_row.addWidget(dup_btn)
         btn_row.addWidget(del_btn)
         left_layout.addLayout(btn_row)
-        left_layout.addWidget(QLabel("🗂️ Collections", left_panel))
+        collections_title = QLabel("COLLECTIONS", left_panel)
+        collections_title.setProperty("role", "section")
+        left_layout.addSpacing(8)
+        left_layout.addWidget(collections_title)
         left_layout.addWidget(self.collection_list, 1)
         cbtn_row = QHBoxLayout()
         cbtn_row.addWidget(cnew_btn)
@@ -130,53 +140,47 @@ class MainWindow(QMainWindow):
         self.editor.add_to_profile_requested.connect(self._add_mods_to_profile)
         self.editor.add_to_collection_requested.connect(self._add_mods_to_collection)
 
-        self.activate_btn = QPushButton("  Activer & lancer", self)
-        self.activate_btn.setMinimumHeight(50)
-        self.activate_btn.setIconSize(QSize(32, 32)) 
+        self.activate_btn = QPushButton("Jouer", self)
+        self.activate_btn.setProperty("variant", "primary")
+        self.activate_btn.setToolTip("Active les mods du profil puis lance FS25 via Steam.")
+        self.activate_btn.setMinimumHeight(44)
+        self.activate_btn.setIconSize(QSize(28, 28))
         self.activate_btn.clicked.connect(self._on_activate)
-        
-        # Try to find an icon
-        provider = QFileIconProvider()
-        self.activate_btn.setIcon(provider.icon(QFileIconProvider.IconType.File)) 
+        icons.bind(self.activate_btn, "play", icons.ROLE_ON_ACCENT)
 
         editor_tab = QWidget(self)
         right_layout = QVBoxLayout(editor_tab)
         header = QHBoxLayout()
         header.addStretch(1)
-        self._header_version_label = QLabel(f"Version {__version__}", self)
-        self._header_version_label.setStyleSheet(
-            "QLabel {"
-            "padding: 4px 10px;"
-            "border: 1px solid #888;"
-            "border-radius: 10px;"
-            "font-weight: 600;"
-            "}"
-        )
-        header.addWidget(self._header_version_label)
         header.addWidget(self.activate_btn)
         right_layout.addLayout(header)
         right_layout.addWidget(self.editor, 1)
 
         # ---- right side is a tab stack: editor + feature panels (no popups)
         self.tabs = QTabWidget(self)
-        self.tabs.addTab(editor_tab, "📝 Éditeur")
+        self.tabs.setIconSize(QSize(16, 16))
+        self.tabs.addTab(editor_tab, "Éditeur")
         self._feature_panels: dict[int, QWidget] = {}
-        self._TAB_CAREER = self.tabs.addTab(self._make_tab_container(), "🎯 Carrière")
-        self._TAB_DUP = self.tabs.addTab(self._make_tab_container(), "🧬 Doublons")
-        self._TAB_STATS = self.tabs.addTab(self._make_tab_container(), "📊 Statistiques")
-        self._TAB_LOG = self.tabs.addTab(self._make_tab_container(), "📋 Log FS25")
-        self._TAB_AUDIT = self.tabs.addTab(
-            self._make_tab_container(), "🔍 Audit sauvegarde"
-        )
-        self._TAB_AUTODRIVE = self.tabs.addTab(
-            self._make_tab_container(), "🛣 Routes AutoDrive"
-        )
-        self._TAB_NEWMODS = self.tabs.addTab(
-            self._make_tab_container(), "📥 Nouveaux mods"
-        )
-        self._TAB_TESTRUNNER = self.tabs.addTab(
-            self._make_tab_container(), "🧪 Tester les mods"
-        )
+        self._TAB_CAREER = self.tabs.addTab(self._make_tab_container(), "Carrière")
+        self._TAB_DUP = self.tabs.addTab(self._make_tab_container(), "Doublons")
+        self._TAB_STATS = self.tabs.addTab(self._make_tab_container(), "Statistiques")
+        self._TAB_LOG = self.tabs.addTab(self._make_tab_container(), "Log FS25")
+        self._TAB_AUDIT = self.tabs.addTab(self._make_tab_container(), "Audit sauvegarde")
+        self._TAB_AUTODRIVE = self.tabs.addTab(self._make_tab_container(), "Routes AutoDrive")
+        self._TAB_NEWMODS = self.tabs.addTab(self._make_tab_container(), "Nouveaux mods")
+        self._TAB_TESTRUNNER = self.tabs.addTab(self._make_tab_container(), "Tester les mods")
+        self._tab_icons = {
+            0: "pencil",
+            self._TAB_CAREER: "target",
+            self._TAB_DUP: "copy",
+            self._TAB_STATS: "chart",
+            self._TAB_LOG: "file-text",
+            self._TAB_AUDIT: "shield",
+            self._TAB_AUTODRIVE: "route",
+            self._TAB_NEWMODS: "download",
+            self._TAB_TESTRUNNER: "flask",
+        }
+        self._apply_tab_icons()
         self._tab_builders = {
             self._TAB_CAREER: self._build_career_panel,
             self._TAB_DUP: self._build_duplicates_panel,
@@ -197,32 +201,37 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self.setStatusBar(QStatusBar(self))
-        self._version_label = QLabel(f"Version {__version__}", self)
-        self.statusBar().addPermanentWidget(self._version_label)
 
         # The library/maintenance views (Doublons, Stats, Log, Audit, AutoDrive,
         # Nouveaux mods) live in the tab stack on the right — no toolbar button
         # duplicates them. The toolbar only keeps actions without a tab.
         toolbar = QToolBar("Principal", self)
+        toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(18, 18))
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(toolbar)
-        rescan = QAction("🔄 Rescanner la bibliothèque", self)
+        rescan = QAction("Rescanner la bibliothèque", self)
+        icons.bind(rescan, "refresh")
         rescan.triggered.connect(self._on_rescan)
         toolbar.addAction(rescan)
         toolbar.addSeparator()
-        export_action = QAction("📤 Exporter config", self)
+        export_action = QAction("Exporter config", self)
+        icons.bind(export_action, "upload")
         export_action.triggered.connect(self._on_export_config)
         toolbar.addAction(export_action)
-        import_action = QAction("📥 Importer config", self)
+        import_action = QAction("Importer config", self)
+        icons.bind(import_action, "download")
         import_action.triggered.connect(self._on_import_config)
         toolbar.addAction(import_action)
-        log_action = QAction("📝 Journal de l'appli", self)
+        log_action = QAction("Journal de l'appli", self)
+        icons.bind(log_action, "file-text")
         log_action.setToolTip("Ouvre le dossier des journaux (erreurs internes, plantages).")
         log_action.triggered.connect(self._on_open_log_dir)
         toolbar.addAction(log_action)
-        toolbar.addSeparator()
-        version_action = QAction(f"Version {__version__}", self)
-        version_action.setEnabled(False)
-        toolbar.addAction(version_action)
+        spacer = QWidget(self)
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+        toolbar.addAction(self._make_theme_action())
 
         # ---- workers (kept as attributes so they survive the call)
         self._scan_thread: QThread | None = None
@@ -309,12 +318,50 @@ class MainWindow(QMainWindow):
             self._backup_pending = False
             self._backup_timer.start()
 
+    # ============================================================ theme
+
+    def _make_theme_action(self) -> QAction:
+        """Bouton « Thème » : système / clair / sombre (mémorisé)."""
+        from . import theme as theme_mod
+        from .widgets import theming
+
+        menu = QMenu(self)
+        group = QActionGroup(self)
+        current = theming.saved_mode()
+        for mode, label in (
+            (theme_mod.MODE_SYSTEM, "Comme Windows"),
+            (theme_mod.MODE_LIGHT, "Clair"),
+            (theme_mod.MODE_DARK, "Sombre"),
+        ):
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(mode == current)
+            group.addAction(act)
+            act.triggered.connect(lambda _checked=False, m=mode: self._set_theme(m))
+        action = QAction("Thème", self)
+        icons.bind(action, "palette")
+        action.setMenu(menu)
+        action.triggered.connect(lambda: menu.exec(self.cursor().pos()))
+        return action
+
+    def _set_theme(self, mode: str) -> None:
+        from .widgets import theming
+
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            theming.set_mode(app, mode)
+            self._apply_tab_icons()
+
+    def _apply_tab_icons(self) -> None:
+        for index, name in self._tab_icons.items():
+            self.tabs.setTabIcon(index, icons.icon(name))
+
     def _status(self, msg: str) -> None:
         self.statusBar().showMessage(msg, 5000)
 
     def _on_internal_error(self) -> None:
         self.statusBar().showMessage(
-            "⚠ Erreur interne : détails dans 📝 Journal de l'appli.", 15000
+            "⚠ Erreur interne : détails dans « Journal de l'appli ».", 15000
         )
 
     def _on_open_log_dir(self) -> None:
@@ -812,16 +859,8 @@ class MainWindow(QMainWindow):
 
     def _update_activate_btn_icon(self) -> None:
         prof = self.state.current_profile
-        icon_path = self._profile_icon_path(prof) if prof else None
-        if icon_path:
-            pix = QPixmap(icon_path)
-            if not pix.isNull():
-                self.activate_btn.setIcon(QIcon(pix))
-                return
-        
-        # Fallback
-        provider = QFileIconProvider()
-        self.activate_btn.setIcon(provider.icon(QFileIconProvider.IconType.File))
+        name = prof.name if prof else ""
+        self.activate_btn.setText(f"Jouer · {name}" if name else "Jouer")
 
     def _on_new_profile(self) -> None:
         name, ok = QInputDialog.getText(self, "Nouveau profil", "Nom du profil :")
@@ -1706,7 +1745,7 @@ class MainWindow(QMainWindow):
         for fname, action in removed.items():
             if action == REMOVE_DROP and remove_from_profile(profile, fname):
                 changed = True
-        
+
         # Save catalog if any mods were imported (added or updated)
         any_imported = any(
             action != ADD_IGNORE for action in added.values()
@@ -1716,7 +1755,7 @@ class MainWindow(QMainWindow):
         if any_imported and self.state.game.library_cache_dir:
             cache_path = self.state.game.library_cache_dir / "index.json"
             catalog.save_cache(cache_path)
-        
+
         if changed:
             profile.save()
             self.editor.set_target(profile)

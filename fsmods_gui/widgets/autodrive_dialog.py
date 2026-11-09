@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from ..profiles.autodrive import AutoDrivePack, scan_packs
 from ..profiles.savegame_audit import list_savegames, parse_savegame
+from . import icons
 
 _ROLE_PACK = int(Qt.ItemDataRole.UserRole)
 
@@ -103,15 +104,18 @@ class AutoDrivePanel(QWidget):
         cols.addWidget(target_box, 1)
 
         # ---- buttons
-        rescan_btn = QPushButton("🔄 Rescanner", self)
+        rescan_btn = QPushButton("Rescanner", self)
+        icons.bind(rescan_btn, "refresh")
         rescan_btn.clicked.connect(self.rescan_requested.emit)
-        self.import_btn = QPushButton("📥 Importer dans la bibliothèque", self)
+        self.import_btn = QPushButton("Importer dans la bibliothèque", self)
+        icons.bind(self.import_btn, "download")
         self.import_btn.setToolTip(
             "Déplacer le pack sélectionné depuis le dossier de téléchargement vers "
             "la bibliothèque AutoDrive (séparée des mods)."
         )
         self.import_btn.clicked.connect(self.import_requested.emit)
-        self.install_btn = QPushButton("🛣 Installer dans la sauvegarde", self)
+        self.install_btn = QPushButton("Installer dans la sauvegarde", self)
+        icons.bind(self.install_btn, "route")
         self.install_btn.clicked.connect(self.install_requested.emit)
         btn_row = QHBoxLayout()
         btn_row.addWidget(rescan_btn)

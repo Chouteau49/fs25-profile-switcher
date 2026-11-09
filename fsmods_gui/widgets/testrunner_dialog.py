@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import theme
 from ..profiles.testrunner import (
     LEVEL_ERROR,
     LEVEL_OK,
@@ -36,6 +37,7 @@ from ..profiles.testrunner import (
     STATUS_WARN,
     ModTestResult,
 )
+from . import icons
 
 SCOPE_PROFILE = "profile"
 SCOPE_LIBRARY = "library"
@@ -51,15 +53,10 @@ _FILTER_STATUSES = {
     STATUS_OK: {STATUS_OK},
 }
 
-_STATUS_BG = {
-    STATUS_OK: QColor(214, 245, 214),
-    STATUS_WARN: QColor(255, 240, 196),
-    STATUS_KO: QColor(255, 205, 205),
-}
-_STATUS_FG = {
-    STATUS_OK: QColor(0, 90, 0),
-    STATUS_WARN: QColor(120, 80, 0),
-    STATUS_KO: QColor(120, 0, 0),
+_STATUS_LEVEL = {
+    STATUS_OK: theme.LEVEL_OK,
+    STATUS_WARN: theme.LEVEL_WARN,
+    STATUS_KO: theme.LEVEL_ERROR,
 }
 _LEVEL_PREFIX = {LEVEL_OK: "✅", LEVEL_WARN: "⚠", LEVEL_ERROR: "❌"}
 
@@ -93,7 +90,8 @@ class TestRunnerPanel(QWidget):
         self.exe_edit.setPlaceholderText(
             "Optionnel — laisser vide pour n'utiliser que les contrôles intégrés"
         )
-        browse_btn = QPushButton("📁 Parcourir…", self)
+        browse_btn = QPushButton("Parcourir…", self)
+        icons.bind(browse_btn, "folder")
         browse_btn.clicked.connect(self._browse_exe)
         exe_row = QHBoxLayout()
         exe_row.addWidget(QLabel("TestRunner.exe :", self))
@@ -104,7 +102,9 @@ class TestRunnerPanel(QWidget):
         self.scope_combo = QComboBox(self)
         self.scope_combo.addItem("Mods du profil courant", userData=SCOPE_PROFILE)
         self.scope_combo.addItem("Toute la bibliothèque", userData=SCOPE_LIBRARY)
-        self.run_btn = QPushButton("▶ Lancer les tests", self)
+        self.run_btn = QPushButton("Lancer les tests", self)
+        self.run_btn.setProperty("variant", "primary")
+        icons.bind(self.run_btn, "play", icons.ROLE_ON_ACCENT)
         self.run_btn.clicked.connect(self._emit_run)
         scope_row = QHBoxLayout()
         scope_row.addWidget(QLabel("Portée :", self))
@@ -151,13 +151,15 @@ class TestRunnerPanel(QWidget):
         split.setStretchFactor(1, 2)
 
         # ---- delete actions (remove faulty mods from the library)
-        self.delete_sel_btn = QPushButton("🗑 Supprimer la sélection", self)
+        self.delete_sel_btn = QPushButton("Supprimer la sélection", self)
+        icons.bind(self.delete_sel_btn, "trash")
         self.delete_sel_btn.setToolTip(
             "Effacer définitivement le(s) mod(s) sélectionné(s) du disque "
             "(retirés aussi de tous les profils et collections)."
         )
         self.delete_sel_btn.clicked.connect(self._emit_delete_selected)
-        self.delete_ko_btn = QPushButton("🗑 Supprimer tous les KO", self)
+        self.delete_ko_btn = QPushButton("Supprimer tous les KO", self)
+        icons.bind(self.delete_ko_btn, "trash")
         self.delete_ko_btn.setToolTip(
             "Effacer de la bibliothèque tous les mods en erreur (❌ KO) listés."
         )
@@ -263,8 +265,10 @@ class TestRunnerPanel(QWidget):
         rows = [(i, r) for i, r in enumerate(self._results) if r.status in allowed]
         self.table.setRowCount(len(rows))
         for row, (idx, res) in enumerate(rows):
-            bg = _STATUS_BG.get(res.status)
-            fg = _STATUS_FG.get(res.status)
+            level = _STATUS_LEVEL.get(res.status)
+            colors = theme.level_colors(theme.current(), level) if level else None
+            bg = QColor(colors[0]) if colors else None
+            fg = QColor(colors[1]) if colors else None
             status_item = QTableWidgetItem(STATUS_LABELS_FR.get(res.status, res.status))
             status_item.setData(Qt.ItemDataRole.UserRole, idx)
             mod_item = QTableWidgetItem(f"{res.title}  ({res.filename})")

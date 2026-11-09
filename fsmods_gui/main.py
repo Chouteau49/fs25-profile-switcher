@@ -190,6 +190,10 @@ def run(argv: list[str] | None = None) -> int:
     app.setOrganizationName("fs25-profile-switcher")
     _configure_app_icon(app)
 
+    from .widgets import theming
+
+    theming.install(app)
+
     try:
         state = AppState(cfg=cfg, game_key=game_key)
         window = MainWindow(state)

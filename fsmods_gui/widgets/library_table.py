@@ -44,8 +44,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import theme
 from ..profiles.catalog import Catalog, CatalogEntry
 from ..profiles.profile import Profile
+from . import icons
 
 COL_ICON = 0
 COL_FILENAME = 1
@@ -185,6 +187,17 @@ CARD_W = CARD_THUMB + 2 * CARD_PAD
 CARD_H = CARD_THUMB + CARD_TEXT_H + 2 * CARD_PAD
 
 
+def draw_placeholder(painter: QPainter, zone: QRect, name: str, color: str) -> None:
+    """Icône centrée dans la zone de vignette d'une carte sans image."""
+    size = max(24, min(zone.width(), zone.height()) // 3)
+    pix = icons.pixmap(name, color, size, stroke=1.5)
+    painter.drawPixmap(
+        zone.left() + (zone.width() - size) // 2,
+        zone.top() + (zone.height() - size) // 2,
+        pix,
+    )
+
+
 class ModCardDelegate(QStyledItemDelegate):
     """Render each catalog entry as a ModHub-style card (big thumbnail + title).
 
@@ -231,16 +244,12 @@ class ModCardDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
 
-        # Card background
-        if selected:
-            bg = option.palette.highlight().color()
-            border = bg.lighter(120)
-        else:
-            bg = QColor("#2a2a2a") if not hovered else QColor("#343434")
-            border = QColor("#555") if not hovered else QColor("#7a7a7a")
-        painter.setBrush(bg)
-        painter.setPen(QPen(border, 1))
-        painter.drawRoundedRect(rect, 8, 8)
+        # Card background (theme colours, light or dark)
+        t = theme.current()
+        style = theme.card_style(t, selected=selected, hovered=hovered)
+        painter.setBrush(QColor(style.bg))
+        painter.setPen(QPen(QColor(style.border), 1))
+        painter.drawRoundedRect(rect, 10, 10)
 
         # Thumbnail (centered in the upper square zone)
         thumb_zone = QRect(rect.left() + CARD_PAD, rect.top() + CARD_PAD, CARD_THUMB, CARD_THUMB)
@@ -250,12 +259,9 @@ class ModCardDelegate(QStyledItemDelegate):
             py = thumb_zone.top() + (thumb_zone.height() - pix.height()) // 2
             painter.drawPixmap(px, py, pix)
         else:
-            painter.setPen(QPen(QColor("#666")))
-            painter.drawText(thumb_zone, Qt.AlignmentFlag.AlignCenter, "🧩")
+            draw_placeholder(painter, thumb_zone, "puzzle", t.muted)
 
-        text_color = (
-            option.palette.highlightedText().color() if selected else QColor("#e6e6e6")
-        )
+        text_color = QColor(style.title)
 
         # Title (one line, elided)
         title_rect = QRect(
@@ -278,7 +284,7 @@ class ModCardDelegate(QStyledItemDelegate):
         sub_font = QFont(option.font)
         sub_font.setPointSizeF(max(7.0, option.font.pointSizeF() - 1))
         painter.setFont(sub_font)
-        painter.setPen(QPen(QColor("#9aa0a6") if not selected else text_color))
+        painter.setPen(QPen(QColor(style.subtitle)))
         sub = entry.category
         if entry.type:
             sub = f"{sub} · {entry.type}"
@@ -289,8 +295,8 @@ class ModCardDelegate(QStyledItemDelegate):
 
         # Error marker
         if entry.error:
-            painter.setPen(QPen(QColor("#e57373")))
-            painter.drawText(thumb_zone.adjusted(4, 4, -4, -4), Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight, "⚠")
+            marker = icons.pixmap("alert", t.red, 18)
+            painter.drawPixmap(thumb_zone.right() - 20, thumb_zone.top() + 2, marker)
 
         painter.restore()
 
@@ -362,7 +368,7 @@ class LibraryFilterProxy(QSortFilterProxyModel):
             not entry.type or entry.type.lower() != self._sub_type.lower()
         ):
             return False
-        
+
         # Profile filter
         if self._profile and self._profile_filter_mode != "all":
             is_in_profile = entry.filename in self._profile.all_mod_filenames()
@@ -370,7 +376,7 @@ class LibraryFilterProxy(QSortFilterProxyModel):
                 return False
             if self._profile_filter_mode == "in_profile" and not is_in_profile:
                 return False
-                
+
         if not self._needle:
             return True
         haystack = " ".join(
@@ -425,14 +431,16 @@ class LibraryTable(QWidget):
 
         # View-mode toggle (table / gallery)
         self.table_btn = QToolButton(self)
-        self.table_btn.setText("☰")
+        icons.bind(self.table_btn, "list")
+        self.table_btn.setToolTip("Liste")
         self.table_btn.setToolTip("Vue tableau")
         self.table_btn.setCheckable(True)
         self.table_btn.setChecked(True)
         self.table_btn.clicked.connect(lambda: self.set_view_mode("table"))
 
         self.grid_btn = QToolButton(self)
-        self.grid_btn.setText("▦")
+        icons.bind(self.grid_btn, "grid")
+        self.grid_btn.setToolTip("Galerie")
         self.grid_btn.setToolTip("Vue galerie (grandes vignettes)")
         self.grid_btn.setCheckable(True)
         self.grid_btn.clicked.connect(lambda: self.set_view_mode("grid"))
@@ -449,15 +457,15 @@ class LibraryTable(QWidget):
         header = self.view.horizontalHeader()
         header.setSectionResizeMode(COL_ICON, header.ResizeMode.Fixed)
         self.view.setColumnWidth(COL_ICON, 40)
-        
+
         # On redimensionne d'abord au contenu pour les autres
         self.view.resizeColumnsToContents()
-        
+
         # Puis on ajuste finement les colonnes prioritaires
         header.setSectionResizeMode(COL_FILENAME, header.ResizeMode.Interactive)
         header.setSectionResizeMode(COL_TITLE, header.ResizeMode.Stretch)  # Le titre prend l'espace
         header.setDefaultSectionSize(120)  # Taille par défaut raisonnable
-        
+
         self.view.sortByColumn(COL_TITLE, Qt.SortOrder.AscendingOrder)
         self.view.doubleClicked.connect(self._on_double_click)
         self.view.selectionModel().selectionChanged.connect(self._on_selection)
@@ -631,13 +639,13 @@ class LibraryTable(QWidget):
         self.type_filter.blockSignals(True)
         self.type_filter.clear()
         self.type_filter.addItem("Tous les types", userData="Tous")
-        
+
         # Sort by translated name
         sorted_types = sorted(list(types), key=lambda t: type_map.get(t.lower(), t))
         for t in sorted_types:
             label = type_map.get(t.lower(), t)
             self.type_filter.addItem(label, userData=t)
-            
+
         idx = self.type_filter.findData(current_type)
         self.type_filter.setCurrentIndex(idx if idx >= 0 else 0)
         self.type_filter.blockSignals(False)
@@ -678,14 +686,17 @@ class LibraryTable(QWidget):
 
         idx = view.indexAt(pos)
         if idx.isValid():
-            view_details = QAction("👁 Voir les détails…", self)
+            view_details = QAction("Voir les détails…", self)
+            icons.bind(view_details, "eye")
             view_details.triggered.connect(lambda: self._show_details(idx))
             menu.addAction(view_details)
-            add_coll = QAction("🗂️ Ajouter à une collection…", self)
+            add_coll = QAction("Ajouter à une collection…", self)
+            icons.bind(add_coll, "collection")
             add_coll.triggered.connect(self._emit_add_to_collection)
             menu.addAction(add_coll)
             menu.addSeparator()
-            delete_act = QAction("🗑 Supprimer de la bibliothèque…", self)
+            delete_act = QAction("Supprimer de la bibliothèque…", self)
+            icons.bind(delete_act, "trash")
             delete_act.triggered.connect(self._emit_delete)
             menu.addAction(delete_act)
             menu.addSeparator()
@@ -741,12 +752,12 @@ class LibraryTable(QWidget):
 
     def set_profile(self, profile: Profile | None) -> None:
         """Set the current profile for filtering.
-        
+
         When a profile is selected, automatically switches to "not_in_profile" mode.
         When profile is None, disables the profile filter.
         """
         self.proxy.set_profile(profile)
-        
+
         if profile is None:
             self.profile_filter.setEnabled(False)
             self.profile_filter.blockSignals(True)
@@ -758,7 +769,7 @@ class LibraryTable(QWidget):
             self.profile_filter.setCurrentIndex(1)  # Automatically set to "Non présents"
             self.profile_filter.blockSignals(False)
             self.proxy.set_profile_filter_mode("not_in_profile")
-        
+
         self._update_count()
 
     def _update_count(self) -> None:

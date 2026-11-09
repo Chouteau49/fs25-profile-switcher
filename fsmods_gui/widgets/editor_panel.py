@@ -19,7 +19,6 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
-    QFileIconProvider,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -36,10 +35,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import theme
 from ..profiles.catalog import Catalog, CatalogEntry
 from ..profiles.collection import Collection
 from ..profiles.official_maps import OFFICIAL_MAPS
 from ..profiles.profile import Profile
+from . import icons
 from .library_table import LibraryTable
 from .mod_gallery import (
     KIND_INHERITED,
@@ -98,9 +99,7 @@ class EditorPanel(QWidget):
         self.map_icon.setFixedSize(72, 72)
         self.map_icon.setScaledContents(True)
         self.map_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.map_icon.setStyleSheet(
-            "border: 1px solid #555; background: #111; border-radius: 4px;"
-        )
+        self.map_icon.setProperty("role", "thumb")
 
         self._form = QFormLayout()
         self._form.addRow("Nom", self.name_input)
@@ -125,15 +124,17 @@ class EditorPanel(QWidget):
 
         # ---- segmented toggle: Contenu / Bibliothèque
         self.content_btn = QToolButton(self)
-        self.content_btn.setText("📦 Contenu")
+        self.content_btn.setText("Contenu")
+        icons.bind(self.content_btn, "box")
         self.content_btn.setCheckable(True)
         self.content_btn.setChecked(True)
         self.library_btn = QToolButton(self)
-        self.library_btn.setText("➕ Bibliothèque")
+        self.library_btn.setText("Bibliothèque")
+        icons.bind(self.library_btn, "library")
         self.library_btn.setCheckable(True)
         for b in (self.content_btn, self.library_btn):
             b.setMinimumHeight(28)
-            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._toggle_group = QButtonGroup(self)
         self._toggle_group.setExclusive(True)
         self._toggle_group.addButton(self.content_btn, _PAGE_CONTENT)
@@ -166,6 +167,7 @@ class EditorPanel(QWidget):
         )
         self.library.delete_requested.connect(self.mod_delete_requested)
         self.add_btn = QPushButton("Ajouter →", self)
+        self.add_btn.setProperty("variant", "primary")
         self.add_btn.clicked.connect(self._add_selected)
         lib_page = QWidget(self)
         lib_layout = QVBoxLayout(lib_page)
@@ -305,7 +307,7 @@ class EditorPanel(QWidget):
         self.map_combo.clear()
         self.map_combo.addItem("— Aucune —", userData=None)
         for m in OFFICIAL_MAPS:
-            self.map_combo.addItem(f"🏛 {m.label}", userData=_OFFICIAL + m.map_id)
+            self.map_combo.addItem(f"{m.label} · carte officielle", userData=_OFFICIAL + m.map_id)
         if self._catalog is not None:
             for entry in sorted(
                 self._catalog.maps(), key=lambda e: e.display_title.lower()
@@ -364,10 +366,7 @@ class EditorPanel(QWidget):
             if not pix.isNull():
                 self.map_icon.setPixmap(pix)
                 return
-        provider = QFileIconProvider()
-        self.map_icon.setPixmap(
-            provider.icon(QFileIconProvider.IconType.Computer).pixmap(72, 72)
-        )
+        self.map_icon.setPixmap(icons.pixmap("map", theme.current().muted, 72, stroke=1.2))
 
     # -------------------------------------------------------------- content
 

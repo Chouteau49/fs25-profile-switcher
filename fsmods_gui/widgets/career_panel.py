@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import theme
 from ..career.farmland_areas import is_dlc_map, map_farmland_areas
 from ..career.formatting import format_stat, format_value
 from ..career.history import CHART_SERIES, series
@@ -59,6 +60,7 @@ from ..career.store import Career
 from ..career.sync import SyncReport, sync_career
 from ..career.templates import TEMPLATES, build_template
 from ..profiles.savegame_audit import list_savegames, parse_savegame
+from . import icons
 from .career_dialogs import (
     ManualStatDialog,
     ObjectiveDialog,
@@ -130,15 +132,20 @@ class CareerPanel(QWidget):
         self.mode_combo.setCurrentIndex(max(self.mode_combo.findData(career.settings.mode), 0))
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
 
-        sync_btn = QPushButton("🔄 Synchroniser", self)
+        sync_btn = QPushButton("Synchroniser", self)
+        icons.bind(sync_btn, "refresh")
         sync_btn.clicked.connect(self._on_sync_clicked)
-        template_btn = QPushButton("📦 Ajouter un modèle…", self)
+        template_btn = QPushButton("Ajouter un modèle…", self)
+        icons.bind(template_btn, "box")
         template_btn.clicked.connect(self._on_add_template)
-        custom_btn = QPushButton("➕ Objectif perso…", self)
+        custom_btn = QPushButton("Objectif perso…", self)
+        icons.bind(custom_btn, "plus")
         custom_btn.clicked.connect(self._on_add_custom)
-        manual_btn = QPushButton("✏ Statistique manuelle…", self)
+        manual_btn = QPushButton("Statistique manuelle…", self)
+        icons.bind(manual_btn, "pencil")
         manual_btn.clicked.connect(self._on_manual_stat)
-        parcels_btn = QPushButton("🌾 Surfaces des parcelles…", self)
+        parcels_btn = QPushButton("Surfaces des parcelles…", self)
+        icons.bind(parcels_btn, "map")
         parcels_btn.setToolTip(
             "Surface de chaque parcelle possédée : lue sur la carte du jeu, "
             "ou à saisir pour une carte DLC (chiffrée)."
@@ -160,7 +167,8 @@ class CareerPanel(QWidget):
         head2.addWidget(parcels_btn)
         head2.addStretch(1)
 
-        title = QLabel(f"<h2>🎯 Carrière — {profile_name}</h2>", self)
+        title = QLabel(f"Carrière — {profile_name}", self)
+        title.setProperty("role", "title")
         self.sync_label = QLabel("", self)
         self.sync_label.setWordWrap(True)
 
@@ -175,7 +183,7 @@ class CareerPanel(QWidget):
         self.level_label.setWordWrap(True)
 
         # ---- history chart
-        self.history_box = QGroupBox("📈 Historique", self)
+        self.history_box = QGroupBox("Historique", self)
         self.history_combo = QComboBox(self.history_box)
         for key, label, unit in CHART_SERIES:
             self.history_combo.addItem(label, userData=(key, unit))
@@ -186,7 +194,7 @@ class CareerPanel(QWidget):
         self.history_combo.currentIndexChanged.connect(self._fill_history)
 
         # ---- pending rewards
-        self.rewards_box = QGroupBox("🎁 Récompenses à attribuer", self)
+        self.rewards_box = QGroupBox("Récompenses à attribuer", self)
         self.rewards_layout = QVBoxLayout(self.rewards_box)
 
         # ---- filters + table
@@ -231,9 +239,11 @@ class CareerPanel(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.itemSelectionChanged.connect(self._update_actions)
 
-        self.validate_btn = QPushButton("✅ Valider (objectif manuel)", self)
+        self.validate_btn = QPushButton("Valider (objectif manuel)", self)
+        icons.bind(self.validate_btn, "check")
         self.validate_btn.clicked.connect(self._on_validate)
-        self.delete_btn = QPushButton("🗑 Retirer l'objectif", self)
+        self.delete_btn = QPushButton("Retirer l'objectif", self)
+        icons.bind(self.delete_btn, "trash")
         self.delete_btn.clicked.connect(self._on_delete)
         actions = QHBoxLayout()
         actions.addWidget(self.validate_btn)
@@ -336,7 +346,7 @@ class CareerPanel(QWidget):
             value = format_stat(stat) if stat else "—"
             quality = stat.quality if stat else Q_NA
             card = QLabel(
-                f"<span style='font-size:11px;color:#666'>{icon} {label}</span><br>"
+                f"<span style='font-size:11px;color:{theme.current().muted}'>{icon} {label}</span><br>"
                 f"<b style='font-size:16px'>{value}</b> {_QUALITY_ICON[quality]}",
                 self.cards_box,
             )
@@ -344,7 +354,7 @@ class CareerPanel(QWidget):
                 f"{QUALITY_LABELS_FR[quality]}" + (f"\n{stat.note}" if stat and stat.note else "")
             )
             card.setMinimumHeight(56)
-            card.setStyleSheet("QLabel { border: 1px solid #ccc; border-radius: 6px; padding: 6px; }")
+            card.setProperty("role", "card")
             self.cards_grid.addWidget(card, i // 3, i % 3)
 
     def _fill_summary(self) -> None:

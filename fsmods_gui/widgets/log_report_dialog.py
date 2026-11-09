@@ -16,19 +16,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import theme
 from ..profiles.log_analyzer import (
     KIND_LABELS_FR,
     SEV_ERROR,
     LogIssue,
 )
-
-# Pale row backgrounds paired with an explicit dark text colour, so rows stay
-# readable whatever the active (light/dark) theme: without forcing the
-# foreground, a dark theme keeps light text that is invisible on these fills.
-_ERROR_BG = QColor(255, 205, 205)
-_ERROR_FG = QColor(120, 0, 0)
-_WARNING_BG = QColor(255, 240, 196)
-_WARNING_FG = QColor(120, 80, 0)
+from . import icons
 
 
 class LogReportPanel(QWidget):
@@ -63,7 +57,8 @@ class LogReportPanel(QWidget):
             self.kind_filter.addItem(label, userData=key)
         self.kind_filter.currentIndexChanged.connect(self._apply_filter)
 
-        copy_btn = QPushButton("📋 Copier le rapport", self)
+        copy_btn = QPushButton("Copier le rapport", self)
+        icons.bind(copy_btn, "copy")
         copy_btn.clicked.connect(self._copy_report)
 
         filter_row = QHBoxLayout()
@@ -114,8 +109,10 @@ class LogReportPanel(QWidget):
         self.table.setRowCount(len(issues))
         for row, issue in enumerate(issues):
             is_error = issue.severity == SEV_ERROR
-            bg = _ERROR_BG if is_error else _WARNING_BG
-            fg = _ERROR_FG if is_error else _WARNING_FG
+            bg_hex, fg_hex = theme.level_colors(
+                theme.current(), theme.LEVEL_ERROR if is_error else theme.LEVEL_WARN
+            )
+            bg, fg = QColor(bg_hex), QColor(fg_hex)
             cells = [
                 issue.severity_label,
                 issue.kind_label,

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..profiles.catalog import CatalogEntry
+from . import icons
 
 # Allow the user to select + copy the text of a label (mouse and keyboard).
 _SELECTABLE = (
@@ -39,11 +40,10 @@ class ModDetailDialog(QDialog):
 
         # Header: Icon + Basic Info
         header = QHBoxLayout()
-        
         self.icon_label = QLabel(self)
         self.icon_label.setFixedSize(128, 128)
         self.icon_label.setScaledContents(True)
-        self.icon_label.setStyleSheet("border: 1px solid #555; background: #111; border-radius: 8px;")
+        self.icon_label.setProperty("role", "thumb")
         if entry.icon_cache_path:
             pix = QPixmap(entry.icon_cache_path)
             if not pix.isNull():
@@ -52,7 +52,7 @@ class ModDetailDialog(QDialog):
 
         info_layout = QVBoxLayout()
         title_label = QLabel(entry.display_title)
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #fff;")
+        title_label.setProperty("role", "title")  # couleur du thème (était #fff)
         info_layout.addWidget(_selectable(title_label))
 
         cat_text = entry.category + (f" · {entry.type}" if entry.type else "")
@@ -75,7 +75,6 @@ class ModDetailDialog(QDialog):
         
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
-        
         self.desc_label = QLabel()
         self.desc_label.setWordWrap(True)
         self.desc_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
@@ -94,11 +93,11 @@ class ModDetailDialog(QDialog):
         if not entry.description_fr and entry.description_en:
             note_layout = QHBoxLayout()
             note = QLabel("<i>Note : Description disponible uniquement en anglais.</i>")
-            note.setStyleSheet("color: #888; font-size: 11px;")
+            note.setProperty("role", "muted")
             note_layout.addWidget(note)
-            
-            self.gtranslate_btn = QPushButton("🌐 Google Traduction", self)
-            self.gtranslate_btn.setStyleSheet("font-size: 11px; padding: 2px 10px;")
+
+            self.gtranslate_btn = QPushButton("Google Traduction", self)
+            icons.bind(self.gtranslate_btn, "globe")
             self.gtranslate_btn.setToolTip(
                 "Ouvre Google Traduction (EN → FR) dans le navigateur avec le texte "
                 "pré-rempli. Le texte complet est aussi copié dans le presse-papier "

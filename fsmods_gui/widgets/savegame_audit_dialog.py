@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import theme
 from ..profiles.catalog import Catalog
 from ..profiles.profile import Profile
 from ..profiles.savegame_audit import (
@@ -30,16 +31,12 @@ from ..profiles.savegame_audit import (
     list_savegames,
     parse_savegame,
 )
+from . import icons
 
-_STATUS_BG = {
-    STATUS_USED: QColor(214, 245, 214),
-    STATUS_LOADED: QColor(255, 240, 196),
-    STATUS_ABSENT: QColor(255, 205, 205),
-}
-_STATUS_FG = {
-    STATUS_USED: QColor(0, 90, 0),
-    STATUS_LOADED: QColor(120, 80, 0),
-    STATUS_ABSENT: QColor(120, 0, 0),
+_STATUS_LEVEL = {
+    STATUS_USED: theme.LEVEL_OK,
+    STATUS_LOADED: theme.LEVEL_WARN,
+    STATUS_ABSENT: theme.LEVEL_ERROR,
 }
 
 
@@ -99,11 +96,14 @@ class SavegameAuditPanel(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 
         # Bulk actions on the current multi-selection of profile mods.
-        check_btn = QPushButton("☑ Cocher « Retirer »", self)
+        check_btn = QPushButton("Cocher « Retirer »", self)
+        icons.bind(check_btn, "check-square")
         check_btn.clicked.connect(lambda: self._set_remove_for_selection(True))
-        uncheck_btn = QPushButton("☐ Décocher", self)
+        uncheck_btn = QPushButton("Décocher", self)
+        icons.bind(uncheck_btn, "square")
         uncheck_btn.clicked.connect(lambda: self._set_remove_for_selection(False))
-        self.delete_btn = QPushButton("🗑 Supprimer de la bibliothèque…", self)
+        self.delete_btn = QPushButton("Supprimer de la bibliothèque…", self)
+        icons.bind(self.delete_btn, "trash")
         self.delete_btn.setToolTip(
             "Effacer définitivement le(s) .zip sélectionné(s) du disque "
             "(retirés aussi de tous les profils et collections)."
@@ -130,16 +130,20 @@ class SavegameAuditPanel(QWidget):
         self.missing_table.verticalHeader().setVisible(False)
         self.missing_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
-        add_check_btn = QPushButton("☑ Cocher « Ajouter »", self)
+        add_check_btn = QPushButton("Cocher « Ajouter »", self)
+        icons.bind(add_check_btn, "check-square")
         add_check_btn.clicked.connect(lambda: self._set_add_for_selection(True))
-        add_uncheck_btn = QPushButton("☐ Décocher", self)
+        add_uncheck_btn = QPushButton("Décocher", self)
+        icons.bind(add_uncheck_btn, "square")
         add_uncheck_btn.clicked.connect(lambda: self._set_add_for_selection(False))
         missing_actions = QHBoxLayout()
         missing_actions.addWidget(add_check_btn)
         missing_actions.addWidget(add_uncheck_btn)
         missing_actions.addStretch(1)
 
-        self.apply_btn = QPushButton("✔ Appliquer au profil", self)
+        self.apply_btn = QPushButton("Appliquer au profil", self)
+        self.apply_btn.setProperty("variant", "primary")
+        icons.bind(self.apply_btn, "check", icons.ROLE_ON_ACCENT)
         self.apply_btn.clicked.connect(self._emit_apply)
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
@@ -226,8 +230,10 @@ class SavegameAuditPanel(QWidget):
         rows = self._report.rows if self._report else []
         self.table.setRowCount(len(rows))
         for i, row in enumerate(rows):
-            bg = _STATUS_BG.get(row.status)
-            fg = _STATUS_FG.get(row.status)
+            level = _STATUS_LEVEL.get(row.status)
+            colors = theme.level_colors(theme.current(), level) if level else None
+            bg = QColor(colors[0]) if colors else None
+            fg = QColor(colors[1]) if colors else None
 
             chk = QTableWidgetItem()
             if row.is_map:

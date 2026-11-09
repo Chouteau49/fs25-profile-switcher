@@ -37,6 +37,7 @@ from ..career.objectives import (
     now_iso,
 )
 from ..career.stats import CATEGORIES_FR, STAT_DEFS, FarmInfo, StatsSnapshot, label_for
+from . import icons
 
 _MAX = 1e12
 
@@ -156,9 +157,11 @@ class ObjectiveDialog(QDialog):
         self.combinator.addItem("Toutes les conditions (ET)", userData="and")
         self.combinator.addItem("Au moins une condition (OU)", userData="or")
         self.rows_layout = QVBoxLayout()
-        self.add_btn = QPushButton("➕ Ajouter une condition", self)
+        self.add_btn = QPushButton("Ajouter une condition", self)
+        icons.bind(self.add_btn, "plus")
         self.add_btn.clicked.connect(self._add_row)
-        self.remove_btn = QPushButton("➖ Retirer la dernière", self)
+        self.remove_btn = QPushButton("Retirer la dernière", self)
+        icons.bind(self.remove_btn, "minus")
         self.remove_btn.clicked.connect(self._remove_row)
         btns = QHBoxLayout()
         btns.addWidget(self.add_btn)

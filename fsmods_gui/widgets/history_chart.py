@@ -7,6 +7,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
+from .. import theme
 from ..career.formatting import format_value
 
 
@@ -26,8 +27,8 @@ class HistoryChart(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect()
-        p.fillRect(rect, self.palette().base())
-        p.setPen(QPen(QColor("#bbb")))
+        p.fillRect(rect, QColor(theme.current().surface))
+        p.setPen(QPen(QColor(theme.current().border)))
         p.drawRect(rect.adjusted(0, 0, -1, -1))
         if not self._points:
             p.setPen(self.palette().text().color())
@@ -54,7 +55,7 @@ class HistoryChart(QWidget):
             return QPointF(x, y)
 
         text_color = self.palette().text().color()
-        p.setPen(QPen(QColor("#ddd")))
+        p.setPen(QPen(QColor(theme.current().track)))
         for i in range(5):
             y = plot.top() + plot.height() * i / 4
             p.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
@@ -74,7 +75,7 @@ class HistoryChart(QWidget):
                            rect.height() - 8), end_label)
 
         coords = [to_xy(w, v) for w, v in self._points]
-        accent = QColor("#2b6cb0")
+        accent = QColor(theme.current().accent)
         if len(coords) > 1:
             p.setPen(QPen(accent, 2))
             p.drawPolyline(QPolygonF(coords))

@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.10.0] - 2026-11-09
+
+Première étape de la refonte de l'interface : même organisation des écrans, mais un
+habillage cohérent et lisible, en clair comme en sombre.
+
+### Added
+
+- **Thème clair, sombre ou « comme Windows »** (bouton **Thème** de la barre d'outils, choix mémorisé). En mode « comme Windows », l'appli suit le changement de thème du système sans redémarrer.
+- **Icônes vectorielles** à la place des emojis sur les boutons, onglets, menus et cartes de mods : rendu net à toutes les échelles d'affichage, couleur adaptée au thème.
+- Cartes de mods : pastilles « Carte », « Hérité », « Exclu » à la place des emojis ; un mod sans image affiche un pictogramme neutre.
+
+### Changed
+
+- **Une palette unique** (`fsmods_gui/theme.py`) pour toute l'appli : fond, cartes, textes secondaires, couleurs d'état (OK, à vérifier, erreur). Tous les couples texte / fond respectent un contraste d'au moins 4,5:1 (vérifié par les tests).
+- Le bouton d'activation devient **« Jouer · <profil> »**, en vert, avec l'icône lecture.
+- Police Segoe UI Variable (Windows 11), style Qt « Fusion » piloté par la palette.
+- Le numéro de version n'apparaît plus qu'une fois, dans le titre de la fenêtre (il était affiché 5 fois).
+- Lignes colorées des vues Log FS25, Audit de sauvegarde et Tester les mods : couleurs issues du thème.
+
+### Fixed
+
+- **Titre invisible dans le détail d'un mod** en thème clair (texte forcé en blanc).
+- **Cartes de la galerie peintes en gris foncé** sur une fenêtre claire : elles suivent maintenant le thème.
+
 ## [0.9.0] - 2026-11-07
 
 ### Added

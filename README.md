@@ -30,7 +30,8 @@ sinon elle retombe automatiquement sur une copie classique.
 - **🎯 Carrière** : objectifs par profil (argent, terres, véhicules, animaux, contrats, temps de jeu…) suivis automatiquement depuis la sauvegarde, récompenses optionnelles, modèles prêts à l'emploi — voir [docs/gui.md](docs/gui.md#carrière--objectifs).
 - **Choix de carte** : la carte associée au profil est mise en avant (icône + nom), y compris les cartes officielles et DLC (vignette du jeu / de Steam). L'application rouvre le dernier profil joué.
 - **Activation instantanée** : hardlinks NTFS, fallback automatique sur copie.
-- **Lancement Steam** : bouton « Activer & lancer » qui démarre le jeu via `steam://rungameid/<id>`.
+- **Lancement Steam** : bouton « Jouer » qui démarre le jeu via `steam://rungameid/<id>`.
+- **Thème clair, sombre ou « comme Windows »**, icônes vectorielles, palette lisible (contraste vérifié).
 - **Sync au retour de partie** : à la fermeture de FS25, l'app détecte les mods ajoutés, supprimés, et les mods mis à jour en jeu (ModHub), puis propose l'action adaptée.
 - **Détails des mods** : aperçu de la fiche modDesc (icône, version, description, multijoueur).
 - **Routes AutoDrive** : installe un pack de routes AutoDrive téléchargé (les XML `AutoDrive_config.xml` / `AutoDriveUsersData.xml`) dans une sauvegarde choisie, en sauvegardant les anciens en `.bak`.
@@ -67,7 +68,7 @@ games:
 1. **Première fois** : copie tous tes `.zip` actuels dans `D:\FS25-Library\mods\`.
 2. Lance `fsmods-gui.exe`. La barre de statut affiche « Bibliothèque : N mods ».
 3. **Crée un profil** (bouton ➕). Choisis la carte, double-clique les mods à inclure.
-4. Clique **▶ Activer & lancer**. Le dossier mods du jeu est reconstruit avec uniquement les mods du profil, et FS25 démarre via Steam.
+4. Clique **▶ Jouer**. Le dossier mods du jeu est reconstruit avec uniquement les mods du profil, et FS25 démarre via Steam.
 5. **Joue**.
 6. **Quitte FS25**. Si tu as téléchargé, supprimé, ou mis à jour des mods en jeu, une fenêtre te propose d'importer les nouveautés, de récupérer les mises à jour dans la bibliothèque, et d'ajuster le profil.
 
