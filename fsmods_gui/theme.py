@@ -461,6 +461,23 @@ QWidget[role="banner"] {{
     background: {t.blue_soft}; border-radius: 12px;
 }}
 QWidget[role="banner"] QLabel {{ color: {t.blue_text}; }}
+QWidget[role="notice"] {{ background: {t.blue_soft}; border-radius: 12px; }}
+QWidget[role="notice"][level="error"] {{ background: {t.red_soft}; }}
+QWidget[role="notice"] QLabel {{ color: {t.blue_text}; }}
+QWidget[role="notice"][level="error"] QLabel {{ color: {t.red_text}; }}
+QPushButton[role="notice-action"] {{
+    background: transparent; border: 1px solid {t.blue_text}; color: {t.blue_text};
+    font-weight: 600; padding: 5px 12px;
+}}
+QWidget[role="notice"][level="error"] QPushButton[role="notice-action"] {{
+    border-color: {t.red_text}; color: {t.red_text};
+}}
+QLineEdit[role="title-edit"] {{
+    font-size: 22px; font-weight: 700; border: 1px solid transparent;
+    background: transparent; padding: 2px 6px;
+}}
+QLineEdit[role="title-edit"]:hover {{ border-color: {t.border}; }}
+QLineEdit[role="title-edit"]:focus {{ border-color: {t.accent}; background: {t.surface}; }}
 QPushButton[role="banner-action"] {{
     background: transparent; color: {t.blue_text}; border: 1px solid {t.blue_text};
     font-weight: 600;

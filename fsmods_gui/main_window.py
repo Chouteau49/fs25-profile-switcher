@@ -101,18 +101,22 @@ class MainWindow(QMainWindow):
         self.activate_btn = QPushButton("Jouer", self)
         self.activate_btn.setProperty("variant", "primary")
         self.activate_btn.setToolTip("Active les mods du profil puis lance FS25 via Steam.")
-        self.activate_btn.setMinimumHeight(44)
+        self.activate_btn.setMinimumHeight(46)
+        self.activate_btn.setMinimumWidth(200)
         self.activate_btn.setIconSize(QSize(28, 28))
         self.activate_btn.clicked.connect(self._on_activate)
         icons.bind(self.activate_btn, "play", icons.ROLE_ON_ACCENT)
 
+        self.duplicate_btn = QPushButton("Dupliquer", self)
+        icons.bind(self.duplicate_btn, "copy")
+        self.duplicate_btn.clicked.connect(self._on_duplicate_profile)
+        self.editor.actions_box.addWidget(self.activate_btn)
+        self.editor.actions_box.addWidget(self.duplicate_btn)
+        self.editor.actions_box.addStretch(1)
+
         editor_page = QWidget(self)
         right_layout = QVBoxLayout(editor_page)
-        right_layout.setContentsMargins(16, 12, 16, 8)
-        header = QHBoxLayout()
-        header.addStretch(1)
-        header.addWidget(self.activate_btn)
-        right_layout.addLayout(header)
+        right_layout.setContentsMargins(24, 20, 24, 12)
         right_layout.addWidget(self.editor, 1)
 
         # ---- pages: one per sidebar section; a section with several views
@@ -991,7 +995,9 @@ class MainWindow(QMainWindow):
         self.collection_list.blockSignals(False)
         self.state.current_profile = prof
         self.editor.set_target(prof)
-        self.activate_btn.setEnabled(True)
+        self.activate_btn.setVisible(True)
+        self.duplicate_btn.setVisible(True)
+        self.activate_btn.setEnabled(self._activating_slug is None)
         self._update_activate_btn_icon()
         if self._visible_feature() == self._TAB_CAREER:
             self._rebuild_feature_tab(self._TAB_CAREER)
@@ -1001,7 +1007,9 @@ class MainWindow(QMainWindow):
         self.profile_list.setCurrentRow(-1)
         self.profile_list.blockSignals(False)
         self.editor.set_target(col)
-        self.activate_btn.setEnabled(False)
+        # Une collection ne se lance pas et se duplique depuis la barre latérale.
+        self.activate_btn.setVisible(False)
+        self.duplicate_btn.setVisible(False)
 
     def _on_profile_row_changed(self, row: int) -> None:
         if row < 0 or row >= len(self.state.profiles):

@@ -55,7 +55,9 @@ from .library_table import (
     CARD_PAD,
     CARD_THUMB,
     CARD_W,
+    MODS_MIME,
     _make_searchable_combo,
+    decode_filenames,
     draw_placeholder,
 )
 
@@ -343,7 +345,36 @@ class ContentCardDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class _DropListView(QListView):
+    """Liste qui accepte les mods glissés depuis la bibliothèque."""
+
+    files_dropped = Signal(list)
+
+    def dragEnterEvent(self, event) -> None:  # type: ignore[override]
+        if event.mimeData().hasFormat(MODS_MIME):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:  # type: ignore[override]
+        if event.mimeData().hasFormat(MODS_MIME):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event) -> None:  # type: ignore[override]
+        names = decode_filenames(event.mimeData())
+        if names:
+            event.acceptProposedAction()
+            self.files_dropped.emit(names)
+        else:
+            super().dropEvent(event)
+
+
 class ModContentPanel(QWidget):
+    #: Noms de fichiers déposés depuis la bibliothèque (glisser-déposer).
+    files_dropped = Signal(list)
+
     """Toolbar (count + list/grid toggle) over a single view of mod contents.
 
     Emits :attr:`remove_requested` with the selected filenames, and
@@ -408,7 +439,7 @@ class ModContentPanel(QWidget):
         self.grid_btn.setChecked(True)
         self.grid_btn.clicked.connect(lambda: self.set_view_mode("grid"))
 
-        self.view = QListView(self)
+        self.view = _DropListView(self)
         self.view.setModel(self.model)
         self.view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.view.setMouseTracking(True)
@@ -418,6 +449,8 @@ class ModContentPanel(QWidget):
         self.view.selectionModel().selectionChanged.connect(self._on_selection)
         self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._on_context_menu)
+        # Dépôt de mods glissés depuis la bibliothèque.
+        self.view.files_dropped.connect(self.files_dropped)
 
         layout = QVBoxLayout(self)
         filters = QHBoxLayout()
@@ -462,6 +495,9 @@ class ModContentPanel(QWidget):
             self.view.setWrapping(False)
             self.view.setMovement(QListView.Movement.Static)
             self.view.setSpacing(2)
+        # setMovement(Static) coupe le glisser-déposer : on rouvre les dépôts.
+        self.view.setAcceptDrops(True)
+        self.view.viewport().setAcceptDrops(True)
 
     # ----------------------------------------------------------------- data
 

@@ -123,3 +123,14 @@ def test_every_view_builds_without_error(window):
 def test_status_goes_to_session_bar(window):
     window._status("Bonjour")
     assert window.session.message() == "Bonjour"
+
+
+def test_no_screen_forces_a_wide_window(window):
+    # Régression 0.12/0.13 : une rangée de boutons ou de filtres trop longue
+    # imposait sa largeur minimale et la fenêtre s'élargissait toute seule.
+    for section in nav.SECTIONS:
+        window._show_section(section.key)
+        for feature in section.features:
+            if len(section.features) > 1:
+                window._show_feature_tab(feature.key)
+            assert window.minimumSizeHint().width() <= 1280, (section.key, feature.key)

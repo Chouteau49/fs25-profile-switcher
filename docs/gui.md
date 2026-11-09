@@ -30,7 +30,12 @@ L'interface graphique `fsmods-gui` (du projet **fs25-profile-switcher**) permet 
 - **Éditeur d'un profil** : ouvert depuis une carte de l'accueil ou en cliquant un profil (ou une collection) dans la liste latérale.
 - **Notifications** (en bas à droite) : les informations s'affichent sans bloquer et disparaissent seules. Après avoir retiré ou exclu un mod dans l'éditeur, **Annuler** remet le profil comme avant.
 - **Listes Profils et Collections** : un fichier JSON par profil sous `library/profiles/`. Les boutons + / dupliquer / supprimer sont à droite de chaque titre.
-- **Éditeur** : choisir la carte (un mod de carte, ou une carte officielle du jeu / d'un DLC, avec sa vignette), ajouter / retirer des mods. Les modifications sont sauvegardées automatiquement.
+- **Page d'un profil** :
+  - **En-tête** : vignette de la carte, nom (clique dessus pour renommer), choix de la carte (un mod de carte, ou une carte officielle du jeu / d'un DLC), notes, et les boutons **Jouer** et **Dupliquer**.
+  - **Mods (N)** : le contenu du profil à gauche, la bibliothèque à droite. Pour ajouter un mod : glisse-le vers la gauche, double-clique-le, ou sélectionne-le puis **Ajouter au profil**. Clic droit sur un mod hérité d'une collection : l'exclure de ce profil.
+  - **Collections héritées (N)** : coche les collections dont le profil reçoit les mods.
+  - **Encadrés** au-dessus des mods : dépendances à ajouter (**Ajouter aussi**), dépendances introuvables, mods du profil absents de la bibliothèque (**Retirer du profil**).
+  - Les modifications sont sauvegardées automatiquement ; un retrait se défait avec **Annuler** dans la notification.
 - **Bas de la barre latérale** : rescanner la bibliothèque, **Outils** (exporter / importer la config, journal de l'appli) et **Thème**.
 - **Barre de session** (bas de la fenêtre) : jeu fermé / en cours / activation, profil installé dans le dossier du jeu (le dernier joué), nombre de mods, état de la sauvegarde de la config, et les messages passagers à droite.
 - **Au démarrage**, l'application sélectionne le dernier profil joué (activé).

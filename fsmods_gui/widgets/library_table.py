@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import (
     QAbstractTableModel,
+    QByteArray,
+    QMimeData,
     QModelIndex,
     QPersistentModelIndex,
     QRect,
@@ -93,6 +95,23 @@ def _make_searchable_combo(combo: QComboBox, placeholder: str = "Filtrer…") ->
 
     line_edit.editingFinished.connect(_snap)
 
+#: Type MIME des noms de fichiers de mods glissés depuis la bibliothèque.
+MODS_MIME = "application/x-fsmods-filenames"
+
+
+def encode_filenames(filenames: list[str]) -> QMimeData:
+    mime = QMimeData()
+    mime.setData(MODS_MIME, QByteArray("\n".join(filenames).encode("utf-8")))
+    return mime
+
+
+def decode_filenames(mime: QMimeData) -> list[str]:
+    if not mime.hasFormat(MODS_MIME):
+        return []
+    raw = bytes(mime.data(MODS_MIME).data()).decode("utf-8")
+    return [line for line in raw.split("\n") if line]
+
+
 class CatalogTableModel(QAbstractTableModel):
     HEADERS = ("", "Fichier", "Titre", "Version", "Marque", "Catégorie", "Auteur")
 
@@ -120,6 +139,20 @@ class CatalogTableModel(QAbstractTableModel):
 
     def columnCount(self, parent: AnyIndex = _ROOT_INDEX) -> int:
         return 0 if parent.isValid() else len(self.HEADERS)
+
+    # ---- drag : la bibliothèque se glisse vers le contenu d'un profil
+    def flags(self, index: AnyIndex) -> Qt.ItemFlag:
+        base = super().flags(index)
+        return base | Qt.ItemFlag.ItemIsDragEnabled if index.isValid() else base
+
+    def mimeTypes(self) -> list[str]:
+        return [MODS_MIME]
+
+    def mimeData(self, indexes) -> QMimeData:  # type: ignore[override]
+        rows = sorted({i.row() for i in indexes if i.isValid()})
+        return encode_filenames(
+            [self._entries[r].filename for r in rows if 0 <= r < len(self._entries)]
+        )
 
     def headerData(
         self,
@@ -472,6 +505,8 @@ class LibraryTable(QWidget):
 
         self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._on_context_menu)
+        self.view.setDragEnabled(True)
+        self.view.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
 
         # ---- Gallery (grid) view, sharing the same proxy model
         self.grid = QListView(self)
@@ -487,6 +522,8 @@ class LibraryTable(QWidget):
         self.grid.setSpacing(6)
         self.grid.setMouseTracking(True)
         self.grid.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.grid.setDragEnabled(True)
+        self.grid.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self.grid.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.grid.doubleClicked.connect(self._on_double_click)
         self.grid.selectionModel().selectionChanged.connect(self._on_selection)
@@ -504,17 +541,25 @@ class LibraryTable(QWidget):
         self.select_all_action.triggered.connect(self._select_all)
         self.addAction(self.select_all_action)
 
+        # Deux rangées : recherche + affichage, puis filtres. Une seule rangée
+        # imposait une largeur minimale qui élargissait la fenêtre (panneau
+        # latéral de la page Profil).
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
-        top.addWidget(self.search, 3)
-        top.addWidget(self.cat_filter, 1)
-        top.addWidget(self.brand_filter, 1)
-        top.addWidget(self.type_filter, 1)
-        top.addWidget(self.profile_filter, 1)
+        top.addWidget(self.search, 1)
         top.addWidget(self.count_label)
         top.addWidget(self.table_btn)
         top.addWidget(self.grid_btn)
+        filters = QHBoxLayout()
+        for combo in (self.cat_filter, self.brand_filter, self.type_filter, self.profile_filter):
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            combo.setMinimumContentsLength(6)
+            filters.addWidget(combo, 1)
         layout.addLayout(top)
+        layout.addLayout(filters)
         layout.addWidget(self.stack)
 
         # Default to the gallery (thumbnail) view everywhere the library appears.

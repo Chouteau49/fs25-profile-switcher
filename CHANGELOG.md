@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.13.0] - 2026-11-09
+
+Quatrième étape de la refonte : la page d'un profil.
+
+### Added
+
+- **Glisser-déposer** : un mod (ou plusieurs) se glisse de la bibliothèque vers le contenu du profil ou de la collection.
+- **Encadrés dans la page** à la place des fenêtres :
+  - après l'ajout d'un mod qui en exige d'autres, « X a besoin de Y, présent dans ta bibliothèque » avec **Ajouter aussi** ;
+  - dépendances introuvables, signalées en rouge (à télécharger puis rescanner) ;
+  - mods du profil absents de la bibliothèque, avec **Retirer du profil** (avant, on ne l'apprenait qu'au lancement).
+  Chaque encadré peut être écarté.
+
+### Changed
+
+- **Page Profil réorganisée** :
+  - en-tête en carte : vignette de la carte du jeu, nom modifiable sur place, choix de la carte, notes, et à droite **Jouer** et **Dupliquer** ;
+  - onglets **Mods (N)** et **Collections héritées (N)** ;
+  - le contenu du profil et la bibliothèque sont **côte à côte** (fini la bascule « Contenu / Bibliothèque » qui masquait l'un ou l'autre).
+- Une collection ouverte dans l'éditeur n'affiche ni carte, ni Jouer, ni l'onglet des collections héritées.
+- Bibliothèque : recherche et filtres sur deux rangées, lisibles même dans le panneau latéral.
+- Vue « À ranger » : boutons sur deux rangées.
+
+### Fixed
+
+- **La fenêtre s'élargissait toute seule** en ouvrant certains écrans (une rangée de boutons ou de filtres trop longue imposait sa largeur). Un test vérifie désormais qu'aucun écran n'exige plus de 1280 px.
+
 ## [0.12.0] - 2026-11-09
 
 Troisième étape de la refonte : un vrai écran d'accueil, et plus de fenêtres qui

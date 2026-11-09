@@ -112,6 +112,10 @@ class NewModsPanel(QWidget):
         for b in (all_btn, none_btn, check_btn, uncheck_btn):
             sel_row.addWidget(b)
         sel_row.addStretch(1)
+        # Deuxième rangée : une seule rangée de six boutons imposait une largeur
+        # minimale supérieure à la fenêtre (qui s'élargissait toute seule).
+        action_row = QHBoxLayout()
+        action_row.addStretch(1)
         self.test_btn = QPushButton("Tester les mods", self)
         icons.bind(self.test_btn, "flask")
         self.test_btn.setToolTip(
@@ -120,7 +124,7 @@ class NewModsPanel(QWidget):
             "apparaît sur chaque vignette ; le détail est dans l'infobulle."
         )
         self.test_btn.clicked.connect(self._on_test)
-        sel_row.addWidget(self.test_btn)
+        action_row.addWidget(self.test_btn)
         self.delete_dl_btn = QPushButton("Supprimer le téléchargement", self)
         icons.bind(self.delete_dl_btn, "trash")
         self.delete_dl_btn.setToolTip(
@@ -128,8 +132,9 @@ class NewModsPanel(QWidget):
             "(Téléchargements / new_mods). N'affecte pas la bibliothèque."
         )
         self.delete_dl_btn.clicked.connect(self._on_delete_downloads)
-        sel_row.addWidget(self.delete_dl_btn)
+        action_row.addWidget(self.delete_dl_btn)
         left_l.addLayout(sel_row)
+        left_l.addLayout(action_row)
 
         # ---- right: classify panel
         self.target_header = QLabel(self)
@@ -169,7 +174,7 @@ class NewModsPanel(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.addWidget(left)
         splitter.addWidget(right)
-        right.setMinimumWidth(280)  # sinon écrasé par la grille à sa gauche
+        right.setMinimumWidth(260)  # sinon écrasé par la grille à sa gauche
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
 

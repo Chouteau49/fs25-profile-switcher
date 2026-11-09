@@ -41,6 +41,11 @@ class MapArt(QWidget):
         self._caption = ""
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+    def set_image(self, name: str, pixmap: QPixmap | None) -> None:
+        self._name = name
+        self._pixmap = pixmap if pixmap is not None and not pixmap.isNull() else None
+        self.update()
+
     def set_caption(self, text: str) -> None:
         self._caption = text
         self.update()
