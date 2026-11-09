@@ -292,6 +292,11 @@ class EditorPanel(QWidget):
         self.name_input.setPlaceholderText(
             "Nom du profil" if is_profile else "Nom de la collection"
         )
+        self.description.setPlaceholderText(
+            "Notes (optionnel) : pentes, DLC, règles de la partie…"
+            if is_profile
+            else "Ex. : à quoi sert la collection, pour quelles cartes ou quels types de partie."
+        )
         self.content_title.setText("Dans ce profil" if is_profile else "Dans cette collection")
         self.add_btn.setText("Ajouter au profil" if is_profile else "Ajouter à la collection")
         self._dep_notices = []

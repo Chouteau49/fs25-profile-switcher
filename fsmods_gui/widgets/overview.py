@@ -176,8 +176,8 @@ class CollectionsOverview(_Grid):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "Collections",
-            "Une collection regroupe des mods à partager entre profils (scripts, "
-            "machines…). Un profil hérite des collections cochées dans sa page.",
+            "Des mods installés souvent ensemble (viticole, forestier, indispensables…). "
+            "Un profil reçoit une collection en la cochant dans sa page.",
             parent,
         )
         new_btn = QPushButton("Nouvelle collection", self)
@@ -193,12 +193,21 @@ class CollectionsOverview(_Grid):
         self.empty_label.setWordWrap(True)
         self._root.insertWidget(1, self.empty_label)
 
-    def set_collections(self, rows: list[tuple[str, str, int, list[str]]]) -> None:
-        """``rows`` : (slug, nom, nombre de mods, profils qui l'héritent)."""
+    def set_collections(self, rows: list[tuple[str, str, int, list[str], str]]) -> None:
+        """``rows`` : (slug, nom, nombre de mods, profils qui l'héritent, description)."""
         cards: list[QWidget] = []
-        for slug, name, count, users in rows:
+        for slug, name, count, users, description in rows:
             card, lay = _card(self)
             lay.addLayout(_icon_title(card, "collection", name))
+            text = description.strip()
+            desc = QLabel(
+                text or "Aucune description : « Modifier » pour en ajouter une.", card
+            )
+            desc.setProperty("role", "muted")
+            desc.setWordWrap(True)
+            if text:
+                desc.setToolTip(text)
+            lay.addWidget(desc)
             meta = QLabel(f"{count} mod" + ("s" if count > 1 else ""), card)
             meta.setProperty("role", "muted")
             used = QLabel(

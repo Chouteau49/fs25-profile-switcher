@@ -872,7 +872,7 @@ class MainWindow(QMainWindow):
         rows = []
         for col in self.state.collections:
             users = [p.name for p in self.state.profiles if col.slug in p.collections]
-            rows.append((col.slug, col.name, len(col.mods), users))
+            rows.append((col.slug, col.name, len(col.mods), users, col.description))
         panel.set_collections(rows)
         panel.open_requested.connect(self._open_collection)
         panel.new_requested.connect(self._on_new_collection)
@@ -1293,6 +1293,7 @@ class MainWindow(QMainWindow):
         for col in self.state.collections:
             item = QListWidgetItem(f"{col.name}  ({len(col.mods)})")
             item.setData(Qt.ItemDataRole.UserRole, col.slug)
+            item.setToolTip(col.description or "Aucune description.")
             self.collection_list.addItem(item)
         self.collection_list.blockSignals(False)
 
@@ -1596,11 +1597,14 @@ class MainWindow(QMainWindow):
     # ========================================================== collections
 
     def _on_new_collection(self) -> None:
-        name, ok = QInputDialog.getText(self, "Nouvelle collection", "Nom :")
-        if not ok or not name.strip():
+        from .widgets.new_collection_dialog import NewCollectionDialog
+
+        dialog = NewCollectionDialog({c.name for c in self.state.collections}, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
             return
+        name, description = dialog.choice()
         try:
-            col = self.state.new_collection(name.strip())
+            col = self.state.new_collection(name, description)
         except (FileExistsError, ValueError) as exc:
             QMessageBox.warning(self, "Création impossible", str(exc))
             return

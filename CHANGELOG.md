@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.17.0] - 2026-11-09
+
+### Added
+
+- **Description des collections** : à la création, un champ « Description » explique à quoi sert la collection (exemples : viticulture, forestier, « mes indispensables », vieux matériel pour une petite carte française). Elle s'affiche sur la carte de la Bibliothèque, en info-bulle dans la liste latérale, et se modifie dans les « Notes » de l'éditeur.
+- Le formulaire de création rappelle qu'une collection se coche ensuite dans les profils.
+
+### Changed
+
+- Le nom d'une collection déjà utilisée est refusé dès la saisie.
+- La duplication d'une collection reprend sa description.
+
 ## [0.16.0] - 2026-11-09
 
 Dernière étape de la refonte : plus besoin d'éditer un fichier pour régler l'appli.

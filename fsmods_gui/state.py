@@ -97,14 +97,14 @@ class AppState:
             return []
         return profile.effective_mod_filenames(self.collection_mods_map())
 
-    def new_collection(self, name: str) -> Collection:
+    def new_collection(self, name: str, description: str = "") -> Collection:
         game = self.game
         if game.library_collections_dir is None:
             raise ValueError("library_dir non configuré.")
         path = collection_path_for(game.library_collections_dir, name)
         if path.exists():
             raise FileExistsError(f"Une collection existe déjà : {path.name}")
-        col = Collection(name=name, game=self.game_key, path=path)
+        col = Collection(name=name, game=self.game_key, description=description, path=path)
         col.save(path)
         self.collections = sorted(
             self.collections + [col], key=lambda c: c.name.lower()
