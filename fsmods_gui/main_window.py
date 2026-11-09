@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon, QPixmap
+from PySide6.QtGui import QActionGroup, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -24,16 +24,15 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
-    QSizePolicy,
-    QSplitter,
-    QStatusBar,
+    QStackedWidget,
     QTabWidget,
-    QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from . import __version__
+from . import navigation as nav
 from .app_logging import default_log_dir, set_error_listener
 from .profiles.activator import ActivationReport, game_process_running
 from .profiles.sync_back import (
@@ -46,6 +45,7 @@ from .profiles.sync_back import (
 from .state import AppState
 from .widgets import icons
 from .widgets.editor_panel import EditorPanel
+from .widgets.shell import SessionBar, SideNav, section_header
 from .widgets.sync_dialog import (
     ADD_IGNORE,
     ADD_LIB_AND_PROFILE,
@@ -82,57 +82,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"FS Profile Switcher v{__version__} — {state.game_key}")
         self.resize(1200, 720)
 
-        # ---- left: profile list + collection list + buttons
+        # ---- sidebar lists: profiles and collections (select what the editor edits)
         self.profile_list = QListWidget(self)
+        self.profile_list.setIconSize(QSize(22, 22))
         self.profile_list.currentRowChanged.connect(self._on_profile_row_changed)
-
-        new_btn = QPushButton("Nouveau", self)
-        dup_btn = QPushButton("Dupliquer", self)
-        del_btn = QPushButton("Supprimer", self)
-        icons.bind(new_btn, "plus")
-        icons.bind(dup_btn, "copy")
-        icons.bind(del_btn, "trash")
-        new_btn.clicked.connect(self._on_new_profile)
-        dup_btn.clicked.connect(self._on_duplicate_profile)
-        del_btn.clicked.connect(self._on_delete_profile)
-
         self.collection_list = QListWidget(self)
         self.collection_list.currentRowChanged.connect(self._on_collection_row_changed)
-        cnew_btn = QPushButton("Nouvelle", self)
-        cdup_btn = QPushButton("Dupliquer", self)
-        cdel_btn = QPushButton("Supprimer", self)
-        icons.bind(cnew_btn, "plus")
-        icons.bind(cdup_btn, "copy")
-        icons.bind(cdel_btn, "trash")
-        cnew_btn.clicked.connect(self._on_new_collection)
-        cdup_btn.clicked.connect(self._on_duplicate_collection)
-        cdel_btn.clicked.connect(self._on_delete_collection)
 
-        left_panel = QWidget(self)
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(12, 12, 12, 12)
-        left_layout.setSpacing(8)
-        profiles_title = QLabel("PROFILS", left_panel)
-        profiles_title.setProperty("role", "section")
-        left_layout.addWidget(profiles_title)
-        left_layout.addWidget(self.profile_list, 2)
-        btn_row = QHBoxLayout()
-        btn_row.addWidget(new_btn)
-        btn_row.addWidget(dup_btn)
-        btn_row.addWidget(del_btn)
-        left_layout.addLayout(btn_row)
-        collections_title = QLabel("COLLECTIONS", left_panel)
-        collections_title.setProperty("role", "section")
-        left_layout.addSpacing(8)
-        left_layout.addWidget(collections_title)
-        left_layout.addWidget(self.collection_list, 1)
-        cbtn_row = QHBoxLayout()
-        cbtn_row.addWidget(cnew_btn)
-        cbtn_row.addWidget(cdup_btn)
-        cbtn_row.addWidget(cdel_btn)
-        left_layout.addLayout(cbtn_row)
-
-        # ---- right: unified editor (profile or collection) + activate
+        # ---- profile page: unified editor (profile or collection) + play button
         self.editor = EditorPanel(self)
         self.editor.set_official_thumbnail_provider(self._official_thumbnail)
         self.editor.changed.connect(self._on_editor_changed)
@@ -148,39 +105,26 @@ class MainWindow(QMainWindow):
         self.activate_btn.clicked.connect(self._on_activate)
         icons.bind(self.activate_btn, "play", icons.ROLE_ON_ACCENT)
 
-        editor_tab = QWidget(self)
-        right_layout = QVBoxLayout(editor_tab)
+        editor_page = QWidget(self)
+        right_layout = QVBoxLayout(editor_page)
+        right_layout.setContentsMargins(16, 12, 16, 8)
         header = QHBoxLayout()
         header.addStretch(1)
         header.addWidget(self.activate_btn)
         right_layout.addLayout(header)
         right_layout.addWidget(self.editor, 1)
 
-        # ---- right side is a tab stack: editor + feature panels (no popups)
-        self.tabs = QTabWidget(self)
-        self.tabs.setIconSize(QSize(16, 16))
-        self.tabs.addTab(editor_tab, "Éditeur")
-        self._feature_panels: dict[int, QWidget] = {}
-        self._TAB_CAREER = self.tabs.addTab(self._make_tab_container(), "Carrière")
-        self._TAB_DUP = self.tabs.addTab(self._make_tab_container(), "Doublons")
-        self._TAB_STATS = self.tabs.addTab(self._make_tab_container(), "Statistiques")
-        self._TAB_LOG = self.tabs.addTab(self._make_tab_container(), "Log FS25")
-        self._TAB_AUDIT = self.tabs.addTab(self._make_tab_container(), "Audit sauvegarde")
-        self._TAB_AUTODRIVE = self.tabs.addTab(self._make_tab_container(), "Routes AutoDrive")
-        self._TAB_NEWMODS = self.tabs.addTab(self._make_tab_container(), "Nouveaux mods")
-        self._TAB_TESTRUNNER = self.tabs.addTab(self._make_tab_container(), "Tester les mods")
-        self._tab_icons = {
-            0: "pencil",
-            self._TAB_CAREER: "target",
-            self._TAB_DUP: "copy",
-            self._TAB_STATS: "chart",
-            self._TAB_LOG: "file-text",
-            self._TAB_AUDIT: "shield",
-            self._TAB_AUTODRIVE: "route",
-            self._TAB_NEWMODS: "download",
-            self._TAB_TESTRUNNER: "flask",
-        }
-        self._apply_tab_icons()
+        # ---- pages: one per sidebar section; a section with several views
+        # shows them as sub-tabs. Each view is rebuilt from the current state
+        # whenever it becomes visible (same behaviour as the former tabs).
+        self._TAB_CAREER = nav.FEATURE_CAREER
+        self._TAB_DUP = nav.FEATURE_DUPLICATES
+        self._TAB_STATS = nav.FEATURE_STATS
+        self._TAB_LOG = nav.FEATURE_LOG
+        self._TAB_AUDIT = nav.FEATURE_AUDIT
+        self._TAB_AUTODRIVE = nav.FEATURE_AUTODRIVE
+        self._TAB_NEWMODS = nav.FEATURE_NEWMODS
+        self._TAB_TESTRUNNER = nav.FEATURE_TESTRUNNER
         self._tab_builders = {
             self._TAB_CAREER: self._build_career_panel,
             self._TAB_DUP: self._build_duplicates_panel,
@@ -191,47 +135,82 @@ class MainWindow(QMainWindow):
             self._TAB_NEWMODS: self._build_new_mods_panel,
             self._TAB_TESTRUNNER: self._build_testrunner_panel,
         }
-        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self._feature_panels: dict[str, QWidget] = {}
+        self._feature_containers: dict[str, QWidget] = {}
+        self._section_tabs: dict[str, QTabWidget] = {}
+        self._section_pages: dict[str, int] = {}
+        self.pages = QStackedWidget(self)
+        for section in nav.SECTIONS:
+            if section.key == nav.SECTION_PROFILES:
+                page: QWidget = editor_page
+                self._feature_containers[nav.FEATURE_EDITOR] = editor_page
+            elif len(section.features) == 1:
+                page = self._make_tab_container()
+                self._feature_containers[section.features[0].key] = page
+            else:
+                tabs = QTabWidget(self)
+                tabs.setProperty("role", "subtabs")
+                tabs.setDocumentMode(True)
+                tabs.setIconSize(QSize(16, 16))
+                for feature in section.features:
+                    container = self._make_tab_container()
+                    self._feature_containers[feature.key] = container
+                    tabs.addTab(container, feature.label)
+                tabs.currentChanged.connect(lambda _i: self._on_view_changed())
+                self._section_tabs[section.key] = tabs
+                page = QWidget(self)
+                page_layout = QVBoxLayout(page)
+                page_layout.setContentsMargins(8, 8, 8, 0)
+                page_layout.addWidget(tabs)
+            self._section_pages[section.key] = self.pages.addWidget(page)
+        self._apply_tab_icons()
 
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        splitter.addWidget(left_panel)
-        splitter.addWidget(self.tabs)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 4)
-        self.setCentralWidget(splitter)
+        # ---- sidebar
+        self.sidebar = SideNav(self)
+        self.sidebar.section_selected.connect(self._show_section)
+        self.sidebar.add_widget(
+            section_header(
+                "Profils",
+                [
+                    ("plus", "Nouveau profil", self._on_new_profile),
+                    ("copy", "Dupliquer le profil", self._on_duplicate_profile),
+                    ("trash", "Supprimer le profil", self._on_delete_profile),
+                ],
+                self.sidebar,
+            )
+        )
+        self.sidebar.add_widget(self.profile_list, 3)
+        self.sidebar.add_widget(
+            section_header(
+                "Collections",
+                [
+                    ("plus", "Nouvelle collection", self._on_new_collection),
+                    ("copy", "Dupliquer la collection", self._on_duplicate_collection),
+                    ("trash", "Supprimer la collection", self._on_delete_collection),
+                ],
+                self.sidebar,
+            )
+        )
+        self.sidebar.add_widget(self.collection_list, 2)
+        self.sidebar.add_spacing(6)
+        self.sidebar.add_widget(self._make_footer_buttons())
 
-        self.setStatusBar(QStatusBar(self))
+        self.session = SessionBar(self)
 
-        # The library/maintenance views (Doublons, Stats, Log, Audit, AutoDrive,
-        # Nouveaux mods) live in the tab stack on the right — no toolbar button
-        # duplicates them. The toolbar only keeps actions without a tab.
-        toolbar = QToolBar("Principal", self)
-        toolbar.setMovable(False)
-        toolbar.setIconSize(QSize(18, 18))
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.addToolBar(toolbar)
-        rescan = QAction("Rescanner la bibliothèque", self)
-        icons.bind(rescan, "refresh")
-        rescan.triggered.connect(self._on_rescan)
-        toolbar.addAction(rescan)
-        toolbar.addSeparator()
-        export_action = QAction("Exporter config", self)
-        icons.bind(export_action, "upload")
-        export_action.triggered.connect(self._on_export_config)
-        toolbar.addAction(export_action)
-        import_action = QAction("Importer config", self)
-        icons.bind(import_action, "download")
-        import_action.triggered.connect(self._on_import_config)
-        toolbar.addAction(import_action)
-        log_action = QAction("Journal de l'appli", self)
-        icons.bind(log_action, "file-text")
-        log_action.setToolTip("Ouvre le dossier des journaux (erreurs internes, plantages).")
-        log_action.triggered.connect(self._on_open_log_dir)
-        toolbar.addAction(log_action)
-        spacer = QWidget(self)
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer)
-        toolbar.addAction(self._make_theme_action())
+        body = QWidget(self)
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self.sidebar)
+        body_layout.addWidget(self.pages, 1)
+        central = QWidget(self)
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(body, 1)
+        central_layout.addWidget(self.session)
+        self.setCentralWidget(central)
+        self.sidebar.set_current(nav.SECTION_PROFILES)
 
         # ---- workers (kept as attributes so they survive the call)
         self._scan_thread: QThread | None = None
@@ -260,6 +239,7 @@ class MainWindow(QMainWindow):
 
         # ---- initial load
         self._refresh_profiles_ui()
+        self._refresh_session()
         self._start_scan()
 
         # Restore saved geometry (position + size)
@@ -305,23 +285,79 @@ class MainWindow(QMainWindow):
         self._backup_thread.start()
 
     def _on_backup_done(self, reports: object) -> None:
+        from datetime import datetime
+
         from .profiles.config_backup import summarize_reports
 
         if isinstance(reports, list) and reports:
             text = summarize_reports(reports)
-            self.statusBar().showMessage(text, 10000)
+            ok = all(r.ok for r in reports)
+            self.session.set_backup(
+                nav.backup_label(ok, datetime.now(), datetime.now()), text
+            )
             if any(not r.ok or r.warnings for r in reports):
                 log.warning(text)
-            if any(not r.ok for r in reports):
-                self.statusBar().setToolTip(text)
+            if not ok:
+                self._status(text)
         if self._backup_pending:
             self._backup_pending = False
             self._backup_timer.start()
 
+    # ============================================================ sidebar footer
+
+    def _make_footer_buttons(self) -> QWidget:
+        """Bas de la barre latérale : rescanner, outils (export, import, journal), thème."""
+        row = QWidget(self)
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+
+        rescan = QToolButton(row)
+        rescan.setProperty("role", "icon")
+        rescan.setToolTip("Rescanner la bibliothèque")
+        rescan.setAccessibleName("Rescanner la bibliothèque")
+        icons.bind(rescan, "refresh", icons.ROLE_MUTED)
+        rescan.clicked.connect(self._on_rescan)
+
+        tools_menu = QMenu(self)
+        export_action = tools_menu.addAction("Exporter la config…")
+        icons.bind(export_action, "upload")
+        export_action.triggered.connect(self._on_export_config)
+        import_action = tools_menu.addAction("Importer une config…")
+        icons.bind(import_action, "download")
+        import_action.triggered.connect(self._on_import_config)
+        tools_menu.addSeparator()
+        log_action = tools_menu.addAction("Journal de l'appli")
+        icons.bind(log_action, "file-text")
+        log_action.setToolTip("Ouvre le dossier des journaux (erreurs internes, plantages).")
+        log_action.triggered.connect(self._on_open_log_dir)
+        tools = QToolButton(row)
+        tools.setProperty("role", "icon")
+        tools.setToolTip("Outils : export, import, journal")
+        tools.setAccessibleName("Outils")
+        tools.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        tools.setMenu(tools_menu)
+        icons.bind(tools, "settings", icons.ROLE_MUTED)
+
+        theme_btn = QToolButton(row)
+        theme_btn.setProperty("role", "icon")
+        theme_btn.setToolTip("Thème : clair, sombre ou comme Windows")
+        theme_btn.setAccessibleName("Thème")
+        theme_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        theme_btn.setMenu(self._make_theme_menu())
+        icons.bind(theme_btn, "palette", icons.ROLE_MUTED)
+
+        for btn in (rescan, tools, theme_btn):
+            btn.setIconSize(QSize(18, 18))
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            lay.addWidget(btn)
+        lay.addStretch(1)
+        return row
+
     # ============================================================ theme
 
-    def _make_theme_action(self) -> QAction:
-        """Bouton « Thème » : système / clair / sombre (mémorisé)."""
+    def _make_theme_menu(self) -> QMenu:
+        """Menu « Thème » : système / clair / sombre (mémorisé)."""
         from . import theme as theme_mod
         from .widgets import theming
 
@@ -338,11 +374,7 @@ class MainWindow(QMainWindow):
             act.setChecked(mode == current)
             group.addAction(act)
             act.triggered.connect(lambda _checked=False, m=mode: self._set_theme(m))
-        action = QAction("Thème", self)
-        icons.bind(action, "palette")
-        action.setMenu(menu)
-        action.triggered.connect(lambda: menu.exec(self.cursor().pos()))
-        return action
+        return menu
 
     def _set_theme(self, mode: str) -> None:
         from .widgets import theming
@@ -353,23 +385,49 @@ class MainWindow(QMainWindow):
             self._apply_tab_icons()
 
     def _apply_tab_icons(self) -> None:
-        for index, name in self._tab_icons.items():
-            self.tabs.setTabIcon(index, icons.icon(name))
+        for section in nav.SECTIONS:
+            tabs = self._section_tabs.get(section.key)
+            if tabs is None:
+                continue
+            for index, feature in enumerate(section.features):
+                tabs.setTabIcon(index, icons.icon(feature.icon))
 
     def _status(self, msg: str) -> None:
-        self.statusBar().showMessage(msg, 5000)
+        self.session.flash(msg)
 
     def _on_internal_error(self) -> None:
-        self.statusBar().showMessage(
-            "⚠ Erreur interne : détails dans « Journal de l'appli ».", 15000
-        )
+        self.session.flash("⚠ Erreur interne : détails dans Outils › Journal de l'appli.", 15000)
 
     def _on_open_log_dir(self) -> None:
         folder = default_log_dir()
         folder.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
-    # ====================================================== feature tabs
+    # ============================================================ session bar
+
+    def _refresh_session(self) -> None:
+        """Profil installé dans le jeu (dernier joué) et badge « à ranger »."""
+        from .profiles.inbox import count_waiting
+        from .profiles.profile import most_recently_played
+
+        played = most_recently_played(self.state.profiles)
+        self.session.set_active_profile(played.name if played else None)
+        try:
+            inbox = self.state.game.inbox_dir_effective
+        except KeyError:
+            inbox = None
+        waiting = count_waiting(inbox)
+        self.sidebar.set_badge(nav.SECTION_LIBRARY, waiting)
+        library_btn = self.sidebar.button(nav.SECTION_LIBRARY)
+        base_tip = nav.section(nav.SECTION_LIBRARY).tooltip
+        library_btn.setToolTip(
+            f"{base_tip}\n{waiting} mod(s) en attente dans _inbox "
+            "(le dossier Téléchargements est examiné à l'ouverture de la vue)."
+            if waiting
+            else base_tip
+        )
+
+    # ====================================================== navigation
 
     def _make_tab_container(self) -> QWidget:
         container = QWidget(self)
@@ -377,9 +435,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
         return container
 
-    def _set_tab_content(self, index: int, widget: QWidget) -> None:
-        """Replace a feature tab's content with a freshly built panel."""
-        container = self.tabs.widget(index)
+    def _set_tab_content(self, key: str, widget: QWidget) -> None:
+        """Replace a view's content with a freshly built panel."""
+        container = self._feature_containers.get(key)
         layout = container.layout() if container is not None else None
         if layout is None:
             return
@@ -389,23 +447,45 @@ class MainWindow(QMainWindow):
             if old is not None:
                 old.deleteLater()
         layout.addWidget(widget)
-        self._feature_panels[index] = widget
+        self._feature_panels[key] = widget
 
-    def _rebuild_feature_tab(self, index: int) -> None:
-        builder = self._tab_builders.get(index)
+    def _rebuild_feature_tab(self, key: str) -> None:
+        builder = self._tab_builders.get(key)
         if builder is not None:
-            self._set_tab_content(index, builder())
+            self._set_tab_content(key, builder())
 
-    def _on_tab_changed(self, index: int) -> None:
-        # Rebuild from current state every time a feature tab becomes visible.
-        self._rebuild_feature_tab(index)
+    def _visible_feature(self) -> str | None:
+        """Vue actuellement affichée (clé de :mod:`navigation`)."""
+        current = self.sidebar.current()
+        if current is None:
+            return None
+        section = nav.section(current)
+        tabs = self._section_tabs.get(current)
+        if tabs is not None:
+            return section.features[max(0, tabs.currentIndex())].key
+        return section.features[0].key
 
-    def _show_feature_tab(self, index: int) -> None:
-        """Switch to a feature tab (rebuilding even if it is already current)."""
-        if self.tabs.currentIndex() == index:
-            self._rebuild_feature_tab(index)
-        else:
-            self.tabs.setCurrentIndex(index)
+    def _on_view_changed(self) -> None:
+        # Rebuild from current state every time a view becomes visible.
+        key = self._visible_feature()
+        if key is not None:
+            self._rebuild_feature_tab(key)
+
+    def _show_section(self, key: str) -> None:
+        self.sidebar.set_current(key)
+        self.pages.setCurrentIndex(self._section_pages[key])
+        self._on_view_changed()
+
+    def _show_feature_tab(self, key: str) -> None:
+        """Afficher une vue (reconstruite même si elle est déjà visible)."""
+        section = nav.section_of(key)
+        tabs = self._section_tabs.get(section.key)
+        if tabs is not None:
+            index = [f.key for f in section.features].index(key)
+            tabs.blockSignals(True)
+            tabs.setCurrentIndex(index)
+            tabs.blockSignals(False)
+        self._show_section(section.key)
 
     # ---- builders: each returns the panel to show in its tab
 
@@ -837,7 +917,7 @@ class MainWindow(QMainWindow):
         self.editor.set_target(prof)
         self.activate_btn.setEnabled(True)
         self._update_activate_btn_icon()
-        if hasattr(self, "_TAB_CAREER") and self.tabs.currentIndex() == self._TAB_CAREER:
+        if self._visible_feature() == self._TAB_CAREER:
             self._rebuild_feature_tab(self._TAB_CAREER)
 
     def _select_collection(self, col) -> None:
@@ -851,11 +931,15 @@ class MainWindow(QMainWindow):
         if row < 0 or row >= len(self.state.profiles):
             return
         self._select_profile(self.state.profiles[row])
+        # Choisir un profil ouvre son éditeur, sauf depuis Carrière (qui suit le profil).
+        if self.sidebar.current() != nav.SECTION_CAREER:
+            self._show_section(nav.SECTION_PROFILES)
 
     def _on_collection_row_changed(self, row: int) -> None:
         if row < 0 or row >= len(self.state.collections):
             return
         self._select_collection(self.state.collections[row])
+        self._show_section(nav.SECTION_PROFILES)
 
     def _update_activate_btn_icon(self) -> None:
         prof = self.state.current_profile
@@ -1252,7 +1336,8 @@ class MainWindow(QMainWindow):
         self.state.refresh_profiles()
         self.state.detect_official_maps()
         self._refresh_profiles_ui()
-        self._status(f"Bibliothèque : {len(catalog)} mods")
+        self.session.set_library(len(catalog))
+        self._refresh_session()
         self._warn_broken_configs()
 
     def _warn_broken_configs(self) -> None:
@@ -1297,6 +1382,7 @@ class MainWindow(QMainWindow):
         result = self.state.import_new_mods(plans)
         if result.affected_profiles or result.affected_collections:
             self._request_backup()
+        self._refresh_session()
 
         # Refresh everything the import may have touched.
         self.editor.set_catalog(self.state.catalog)
@@ -1539,6 +1625,7 @@ class MainWindow(QMainWindow):
         if profile is None or self.state.catalog is None:
             return
         self._activating_profile = profile
+        self.session.set_game(nav.GAME_ACTIVATING)
         self._progress = QProgressDialog(
             "Activation…", "Annuler", 0, 100, self
         )
@@ -1575,6 +1662,7 @@ class MainWindow(QMainWindow):
         if self._progress is not None:
             self._progress.setValue(self._progress.maximum())
             self._progress = None
+        self.session.set_game(nav.GAME_CLOSED)
         if not isinstance(report, ActivationReport):
             return
         log.info(
@@ -1623,19 +1711,23 @@ class MainWindow(QMainWindow):
                 self.state.effective_filenames(self.state.current_profile),
             )
             self._watcher.start()
+        self._refresh_session()
 
     def _on_activate_failed(self, message: str) -> None:
         if self._progress is not None:
             self._progress.cancel()
             self._progress = None
+        self.session.set_game(nav.GAME_CLOSED)
         QMessageBox.critical(self, "Activation échouée", message)
 
     # ============================================================ watcher
 
     def _on_game_started(self) -> None:
+        self.session.set_game(nav.GAME_RUNNING)
         self._status("FS25 détecté en cours d'exécution.")
 
     def _on_game_stopped(self) -> None:
+        self.session.set_game(nav.GAME_CLOSED)
         self._status("FS25 fermé — vérification de la synchronisation…")
         try:
             mods_dir = self.state.game.mods_dir
@@ -1643,6 +1735,7 @@ class MainWindow(QMainWindow):
             mods_dir = None
         self._sync_career_after_game()
         self._reconcile_after_game()
+        self._refresh_session()
         # Analyse du log FS25 de la session qui vient de se terminer : on ouvre
         # l'onglet Log uniquement si des problèmes sont détectés.
         if mods_dir is not None:
@@ -1651,7 +1744,7 @@ class MainWindow(QMainWindow):
             log_path = log_path_for(mods_dir)
             if log_path.is_file() and analyze_log(log_path):
                 self._show_feature_tab(self._TAB_LOG)
-                self._status("Log FS25 : problèmes détectés — voir l'onglet « Log FS25 ».")
+                self._status("Log FS25 : problèmes détectés — voir Diagnostic › Log FS25.")
             else:
                 self._status("Log FS25 : aucun problème détecté.")
 

@@ -169,6 +169,7 @@ class NewModsPanel(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.addWidget(left)
         splitter.addWidget(right)
+        right.setMinimumWidth(280)  # sinon écrasé par la grille à sa gauche
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
 

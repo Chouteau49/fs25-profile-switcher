@@ -5,23 +5,35 @@ L'interface graphique `fsmods-gui` (du projet **fs25-profile-switcher**) permet 
 ## Vue d'ensemble
 
 ```
-┌─ Profils ───────┬─ Détails du profil ───────────────────────┐
-│ ► Montagne      │  ▶ Jouer · Montagne                       │
-│   Plaines       │  Nom    : Montagne                        │
-│   No Man's Land │  Carte  : FS25_Alpenland                  │
-│   + Nouveau     │  Notes  : …                               │
-│                 │  ─────────────────────────────────────────│
-│                 │  Bibliothèque    │   Mods du profil       │
-│                 │  (table + filtre)│   (sélection courante) │
-└─────────────────┴───────────────────────────────────────────┘
+┌──────────────────┬──────────────────────────────────────────┐
+│ ⌂ Profils        │                       [ ▶ Jouer · Montagne ]│
+│ ≡ Bibliothèque 2 │  Nom    : Montagne                        │
+│ ◎ Carrière       │  Carte  : Alpenland                       │
+│ ∿ Diagnostic     │  Notes  : …                               │
+│                  │  [Contenu] [Bibliothèque]                 │
+│ PROFILS   + ⧉ 🗑 │  galerie des mods du profil               │
+│  Montagne        │                                           │
+│  Plaines         │                                           │
+│ COLLECTIONS + ⧉ 🗑│                                          │
+│ ↻  ⚙  🎨          │                                          │
+├──────────────────┴──────────────────────────────────────────┤
+│ ● FS25 fermé · Dans le dossier du jeu : Montagne · 812 mods  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-- **Profils** (gauche) : la liste de tes parties. Un fichier JSON par profil sous `library/profiles/`.
-- **Éditeur** (droite) : choisir la carte (un mod de carte, ou une carte officielle 🏛 du jeu / d'un DLC, avec sa vignette), ajouter / retirer des mods. Les modifications sont sauvegardées automatiquement.
+- **Barre latérale** : quatre espaces.
+  - **Profils** : l'éditeur du profil ou de la collection choisi(e) dans les listes en dessous.
+  - **Bibliothèque** : les mods **à ranger** (téléchargés via ModHub, déposés dans `_inbox`, ou mis à l'abri lors d'une activation). La pastille compte les zips en attente dans `_inbox`.
+  - **Carrière** : objectifs du profil choisi. Changer de profil dans la liste reste sur la Carrière.
+  - **Diagnostic** : Log FS25, Audit sauvegarde, Doublons, Routes AutoDrive, Tester les mods, Statistiques.
+- **Listes Profils et Collections** : un fichier JSON par profil sous `library/profiles/`. Les boutons + / dupliquer / supprimer sont à droite de chaque titre.
+- **Éditeur** : choisir la carte (un mod de carte, ou une carte officielle du jeu / d'un DLC, avec sa vignette), ajouter / retirer des mods. Les modifications sont sauvegardées automatiquement.
+- **Bas de la barre latérale** : rescanner la bibliothèque, **Outils** (exporter / importer la config, journal de l'appli) et **Thème**.
+- **Barre de session** (bas de la fenêtre) : jeu fermé / en cours / activation, profil installé dans le dossier du jeu (le dernier joué), nombre de mods, état de la sauvegarde de la config, et les messages passagers à droite.
 - **Au démarrage**, l'application sélectionne le dernier profil joué (activé).
 - **Jouer · <profil>** (ex-« Activer & lancer ») : remplace le contenu de `Documents\My Games\FarmingSimulator2025\mods\` par les mods du profil (hardlinks NTFS instantanés), puis démarre FS25 via Steam. Un zip du dossier du jeu absent de la bibliothèque ou différent de sa copie n'est jamais supprimé : il est déplacé dans `_inbox` et « Nouveaux mods » propose de l'importer. L'activation est refusée tant que le jeu tourne.
-- **Thème** (barre d'outils) : clair, sombre ou « comme Windows » (suit le thème du système). Le choix est mémorisé.
-- **Journal de l'appli** (barre d'outils) : ouvre `%LOCALAPPDATA%\fs25-profile-switcher\logs`. `fsmods-gui.log` garde les erreurs internes, `crash.log` les plantages durs. C'est le fichier à regarder (ou à envoyer) quand l'appli se comporte mal.
+- **Thème** (bas de la barre latérale) : clair, sombre ou « comme Windows » (suit le thème du système). Le choix est mémorisé.
+- **Journal de l'appli** (Outils, bas de la barre latérale) : ouvre `%LOCALAPPDATA%\fs25-profile-switcher\logs`. `fsmods-gui.log` garde les erreurs internes, `crash.log` les plantages durs. C'est le fichier à regarder (ou à envoyer) quand l'appli se comporte mal.
 - **Synchronisation auto** : à la fermeture de FS25, un dialogue liste les mods ajoutés (téléchargés via ModHub en jeu) ou retirés, et te demande comment les ranger.
 
 ## Bibliothèque centrale
@@ -39,7 +51,7 @@ D:\FS25-Library\
 
 ## Carrière / objectifs
 
-L'onglet **🎯 Carrière** transforme un profil en suivi de carrière : tu choisis la sauvegarde associée (détectée automatiquement si la carte du profil ne correspond qu'à une sauvegarde), puis tu ajoutes un **modèle** (« 📦 Ajouter un modèle… ») ou tes propres objectifs. Avec une carte à **plusieurs fermes**, choisis la « Ferme suivie » et rattache chaque objectif (ou modèle) à la ferme voulue : chacun est mesuré sur les statistiques de sa ferme. Changer de ferme suivie ne déplace rien : les objectifs sans ferme précise restent sur celle où ils étaient mesurés (📌), et l'historique affiché est celui de la ferme suivie. Les objectifs sont recalculés à chaque ouverture de l'onglet, au clic sur « 🔄 Synchroniser » et à la fermeture du jeu.
+L'espace **Carrière** transforme un profil en suivi de carrière : tu choisis la sauvegarde associée (détectée automatiquement si la carte du profil ne correspond qu'à une sauvegarde), puis tu ajoutes un **modèle** (« Ajouter un modèle… ») ou tes propres objectifs. Avec une carte à **plusieurs fermes**, choisis la « Ferme suivie » et rattache chaque objectif (ou modèle) à la ferme voulue : chacun est mesuré sur les statistiques de sa ferme. Changer de ferme suivie ne déplace rien : les objectifs sans ferme précise restent sur celle où ils étaient mesurés (📌), et l'historique affiché est celui de la ferme suivie. Les objectifs sont recalculés à chaque ouverture de l'espace, au clic sur « Synchroniser » et à la fermeture du jeu.
 
 - **Fiabilité des valeurs** : 🟢 lue dans la sauvegarde · 🟠 calculée / estimée (ex. surface lue sur la carte, patrimoine = argent − emprunt + prix d'achat, sans la valeur des terres) · 🔵 saisie à la main · 🔴 non disponible.
 - **Surface possédée** : calculée depuis la carte des parcelles du jeu (cartes de base et cartes mods). Pour une carte DLC chiffrée (ex. Kinlaig), « 🌾 Surfaces des parcelles… » liste tes parcelles : tape une fois la surface de chacune (visible sur la carte en jeu, virgule ou point, Entrée pour passer à la suivante), le total se calcule en direct. Vide = à saisir, `0` = vraie valeur. Tant qu'une parcelle manque, le tableau de bord affiche le minimum connu (`≥ 8,5 ha`), la synchronisation nomme les parcelles restantes et les objectifs de surface restent « non disponible ».
@@ -129,4 +141,4 @@ Le binaire `fsmods-gui.exe` atterrit dans `dist\`. Voir [`packaging/build.ps1`](
 | Toutes les activations affichent « copy » au lieu de « hardlink » | bibliothèque sur un autre volume que le dossier du jeu | déplace la bibliothèque sur le même disque que `Documents\…\FarmingSimulator2025\` |
 | Le dialogue de synchronisation ne s'ouvre jamais | `psutil` non installé ou nom du process non détecté | `pip install psutil` (déjà inclus dans les dépendances) |
 | FS25 ne démarre pas après l'activation | `steam_app_id` absent ou Steam non lancé | renseigne `steam_app_id: 2300320`, lance Steam d'abord |
-| Profils invisibles après changement de bibliothèque | la GUI lit `library/profiles/` du jeu courant | bouton « 🔄 Rescanner la bibliothèque » dans la barre d'outils |
+| Profils invisibles après changement de bibliothèque | la GUI lit `library/profiles/` du jeu courant | bouton « Rescanner » en bas de la barre latérale |

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.11.0] - 2026-11-09
+
+Deuxième étape de la refonte : une vraie navigation à la place des neuf onglets.
+
+### Added
+
+- **Barre latérale** avec quatre espaces : **Profils** (éditeur), **Bibliothèque** (mods à ranger), **Carrière**, **Diagnostic** (Log FS25, Audit sauvegarde, Doublons, Routes AutoDrive, Tester les mods, Statistiques en sous-onglets).
+- **Pastille « à ranger »** sur Bibliothèque : nombre de zips en attente dans `_inbox`, mise à jour après un scan, une activation, un import et la fermeture du jeu.
+- **Barre de session** permanente en bas : jeu fermé / en cours / activation, profil installé dans le dossier du jeu, nombre de mods de la bibliothèque, état de la dernière sauvegarde de la config (détail en info-bulle). Les messages passagers s'affichent à sa droite.
+
+### Changed
+
+- Les listes **Profils** et **Collections** passent dans la barre latérale ; leurs boutons (nouveau, dupliquer, supprimer) deviennent de petites icônes à droite de chaque titre.
+- La barre d'outils disparaît : rescanner, **Outils** (exporter / importer la config, journal de l'appli) et **Thème** sont en bas de la barre latérale.
+- Choisir un profil ouvre son éditeur ; depuis Carrière, l'écran reste sur la carrière du profil choisi.
+- La vue « À ranger » réserve une largeur minimale à son panneau de droite (profils / collections cibles), qui était écrasé.
+
 ## [0.10.0] - 2026-11-09
 
 Première étape de la refonte de l'interface : même organisation des écrans, mais un

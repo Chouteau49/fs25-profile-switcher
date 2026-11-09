@@ -377,4 +377,41 @@ QLabel[role="thumb"] {{
     background: {t.surface2}; border: 1px solid {t.border}; border-radius: 8px;
 }}
 QLabel[role="kpi"] {{ font-size: 20px; font-weight: 700; }}
+QLabel[role="strong"] {{ font-weight: 600; }}
+
+QWidget[role="sidebar"] {{
+    background: {t.side}; border-right: 1px solid {t.border};
+}}
+QWidget[role="sidebar"] QListWidget {{
+    background: transparent; border: 0; outline: 0;
+}}
+QWidget[role="sidebar"] QListWidget::item {{ padding: 6px 8px; }}
+QWidget[role="sidebar"] QListWidget::item:hover {{ background: {t.surface2}; }}
+QWidget[role="sidebar"] QListWidget::item:selected {{
+    background: {t.surface}; color: {t.text}; font-weight: 600;
+}}
+QPushButton[role="nav"] {{
+    text-align: left; padding: 8px 12px; border: 0; border-radius: 9px;
+    background: transparent; color: {t.muted}; font-weight: 500;
+}}
+QPushButton[role="nav"]:hover {{ background: {t.surface2}; color: {t.text}; }}
+QPushButton[role="nav"]:checked {{
+    background: {t.surface}; color: {t.text}; font-weight: 600;
+}}
+QToolButton[role="icon"] {{
+    border: 0; background: transparent; padding: 4px; border-radius: 6px;
+}}
+QToolButton[role="icon"]:hover {{ background: {t.surface2}; }}
+QToolButton[role="icon"]::menu-indicator {{ image: none; width: 0; }}
+QLabel[role="badge"] {{
+    background: {t.blue}; color: {t.side}; border-radius: 9px;
+    font-size: 11px; font-weight: 700; padding: 0 6px;
+}}
+QWidget[role="sessionbar"] {{
+    background: {t.side}; border-top: 1px solid {t.border};
+}}
+QLabel[role="dot"] {{ border-radius: 4px; background: {t.border_strong}; }}
+QLabel[role="dot"][level="ok"] {{ background: {t.accent}; }}
+QLabel[role="dot"][level="warn"] {{ background: {t.amber}; }}
+QTabWidget[role="subtabs"]::pane {{ border: 0; border-top: 1px solid {t.border}; }}
 """

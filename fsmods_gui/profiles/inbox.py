@@ -74,6 +74,15 @@ def _list_zip_files(folder: Path) -> list[Path]:
     return out
 
 
+def count_waiting(folder: Path | None) -> int:
+    """Nombre de zips en attente dans un dossier (``_inbox``), sans les ouvrir.
+
+    Sert au badge « à ranger » de la barre latérale : lister le dossier suffit,
+    l'analyse complète (modDesc, doublons) reste faite à l'ouverture de la vue.
+    """
+    return len(_list_zip_files(folder)) if folder is not None else 0
+
+
 def scan_sources(
     source_dirs: list[Path],
     library_mods_dir: Path | None,
