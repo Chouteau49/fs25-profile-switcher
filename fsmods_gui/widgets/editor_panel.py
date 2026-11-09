@@ -50,6 +50,7 @@ from .mod_gallery import (
     GalleryItem,
     ModContentPanel,
 )
+from .toast import notify
 
 _PAGE_CONTENT = 0
 _PAGE_LIBRARY = 1
@@ -307,7 +308,7 @@ class EditorPanel(QWidget):
         self.map_combo.clear()
         self.map_combo.addItem("— Aucune —", userData=None)
         for m in OFFICIAL_MAPS:
-            self.map_combo.addItem(f"{m.label} · carte officielle", userData=_OFFICIAL + m.map_id)
+            self.map_combo.addItem(m.label, userData=_OFFICIAL + m.map_id)
         if self._catalog is not None:
             for entry in sorted(
                 self._catalog.maps(), key=lambda e: e.display_title.lower()
@@ -448,11 +449,10 @@ class EditorPanel(QWidget):
             self._reload_content()
             self.changed.emit()
         if maps_skipped:
-            QMessageBox.information(
+            notify(
                 self,
-                "Cartes ignorées",
-                "Les cartes ne peuvent pas faire partie d'une collection "
-                "(la carte est un choix propre à chaque profil).",
+                "Cartes ignorées : une carte ne peut pas faire partie d'une collection "
+                "(c'est un choix propre à chaque profil).",
             )
 
     def _add_to_profile(self, entries: list[CatalogEntry]) -> None:
@@ -544,6 +544,7 @@ class EditorPanel(QWidget):
     def _remove_filenames(self, filenames: list[str]) -> None:
         if self._target is None or not filenames:
             return
+        snapshot = self._snapshot()
         changed = False
         if isinstance(self._target, Profile):
             prof = self._target
@@ -571,11 +572,13 @@ class EditorPanel(QWidget):
         if changed:
             self._reload_content()
             self.changed.emit()
+            self._offer_undo(snapshot, self._removal_message(filenames))
 
     def _set_excluded(self, fname: str, excluded: bool) -> None:
         if not isinstance(self._target, Profile):
             return
         prof = self._target
+        snapshot = self._snapshot()
         if excluded and fname not in prof.excluded_mods:
             prof.excluded_mods.append(fname)
         elif not excluded and fname in prof.excluded_mods:
@@ -584,6 +587,53 @@ class EditorPanel(QWidget):
             return
         self._reload_content()
         self.changed.emit()
+        title = self._title_of(fname)
+        self._offer_undo(
+            snapshot,
+            f"{title} exclu de ce profil (reste dans sa collection)."
+            if excluded
+            else f"{title} réintégré au profil.",
+        )
+
+    # ------------------------------------------------------------------ undo
+
+    def _snapshot(self) -> tuple | None:
+        """État modifiable de la cible, pour « Annuler »."""
+        t = self._target
+        if isinstance(t, Profile):
+            return (t, list(t.mods), t.map_mod, t.official_map, list(t.excluded_mods))
+        if isinstance(t, Collection):
+            return (t, list(t.mods))
+        return None
+
+    def _restore(self, snapshot: tuple) -> None:
+        target = snapshot[0]
+        if isinstance(target, Profile):
+            _, target.mods, target.map_mod, target.official_map, target.excluded_mods = snapshot
+        else:
+            _, target.mods = snapshot
+        if target is self._target:
+            if isinstance(target, Profile):
+                block = self.map_combo.blockSignals(True)
+                self._select_map_in_combo(_map_key(target))
+                self.map_combo.blockSignals(block)
+                self._update_map_icon()
+            self._reload_content()
+        self.changed.emit()
+
+    def _offer_undo(self, snapshot: tuple | None, message: str) -> None:
+        if snapshot is None:
+            return
+        notify(self, message, "Annuler", lambda: self._restore(snapshot))
+
+    def _title_of(self, fname: str) -> str:
+        entry = self._catalog.get(fname) if self._catalog else None
+        return entry.display_title if entry else fname
+
+    def _removal_message(self, filenames: list[str]) -> str:
+        if len(filenames) == 1:
+            return f"{self._title_of(filenames[0])} retiré."
+        return f"{len(filenames)} mods retirés."
 
     def _show_details(self, filename: str) -> None:
         entry = self._catalog.get(filename) if self._catalog else None

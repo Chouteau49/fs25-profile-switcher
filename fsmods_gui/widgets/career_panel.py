@@ -68,6 +68,7 @@ from .career_dialogs import (
     confirm_reward,
 )
 from .history_chart import HistoryChart
+from .toast import notify
 
 # Statistics shown as dashboard cards: (key, icon).
 _CARDS = (
@@ -640,13 +641,13 @@ class CareerPanel(QWidget):
     def _on_parcel_areas(self) -> None:
         savegame_name = self._career.settings.savegame
         if not savegame_name:
-            QMessageBox.information(self, "Parcelles", "Associe d'abord une sauvegarde.")
+            notify(self, "Associe d'abord une sauvegarde à ce profil.")
             return
         savegame = self._user_dir / savegame_name
         map_id = savegame_map_id(savegame)
         owned = owned_parcels(savegame)
         if not owned:
-            QMessageBox.information(self, "Parcelles", "Aucune parcelle possédée dans cette sauvegarde.")
+            notify(self, "Aucune parcelle possédée dans cette sauvegarde.")
             return
         mod_dirs = [d for d in (self._user_dir / "mods", self._library_mods_dir) if d is not None]
         areas = map_farmland_areas(map_id, self._install_dir, mod_dirs)

@@ -12,12 +12,14 @@ from dataclasses import dataclass
 from datetime import datetime
 
 # ---- espaces (barre latérale)
+SECTION_HOME = "home"
 SECTION_PROFILES = "profiles"
 SECTION_LIBRARY = "library"
 SECTION_CAREER = "career"
 SECTION_DIAGNOSTIC = "diagnostic"
 
 # ---- vues (contenu d'un espace)
+FEATURE_HOME = "home"
 FEATURE_EDITOR = "editor"
 FEATURE_NEWMODS = "newmods"
 FEATURE_CAREER = "career"
@@ -43,15 +45,24 @@ class Section:
     icon: str
     features: tuple[Feature, ...]
     tooltip: str = ""
+    in_nav: bool = True  # False : page atteinte depuis l'accueil ou la liste des profils
 
 
 SECTIONS: tuple[Section, ...] = (
     Section(
-        SECTION_PROFILES,
-        "Profils",
+        SECTION_HOME,
+        "Accueil",
         "home",
+        (Feature(FEATURE_HOME, "Accueil", "home"),),
+        "Tes parties : lancer un profil, voir la dernière partie.",
+    ),
+    Section(
+        SECTION_PROFILES,
+        "Profil",
+        "pencil",
         (Feature(FEATURE_EDITOR, "Éditeur", "pencil"),),
         "Le profil ou la collection choisi(e) dans la liste : carte, mods, lancement.",
+        in_nav=False,
     ),
     Section(
         SECTION_LIBRARY,
@@ -97,6 +108,11 @@ def section_of(feature_key: str) -> Section:
         if any(f.key == feature_key for f in s.features):
             return s
     raise KeyError(feature_key)
+
+
+def nav_sections() -> list[Section]:
+    """Espaces qui ont une entrée dans la barre latérale."""
+    return [s for s in SECTIONS if s.in_nav]
 
 
 def all_features() -> list[Feature]:

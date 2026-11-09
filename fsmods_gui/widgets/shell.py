@@ -85,9 +85,10 @@ class SideNav(QWidget):
         self._layout.setSpacing(2)
 
         self._buttons: dict[str, NavButton] = {}
+        self._current: str | None = None
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
-        for s in nav.SECTIONS:
+        for s in nav.nav_sections():
             btn = NavButton(s.label, s.icon, self)
             btn.setToolTip(s.tooltip)
             btn.clicked.connect(lambda _c=False, k=s.key: self.section_selected.emit(k))
@@ -100,13 +101,19 @@ class SideNav(QWidget):
         return self._buttons[key]
 
     def set_current(self, key: str) -> None:
-        self._buttons[key].setChecked(True)
+        """Coche l'entrée ``key`` ; une page hors barre latérale ne coche rien."""
+        self._current = key
+        btn = self._buttons.get(key)
+        if btn is not None:
+            btn.setChecked(True)
+            return
+        self._group.setExclusive(False)
+        for b in self._buttons.values():
+            b.setChecked(False)
+        self._group.setExclusive(True)
 
     def current(self) -> str | None:
-        for key, btn in self._buttons.items():
-            if btn.isChecked():
-                return key
-        return None
+        return self._current
 
     def set_badge(self, key: str, count: int) -> None:
         self._buttons[key].set_badge(count)

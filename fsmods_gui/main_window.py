@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QProgressDialog,
     QPushButton,
     QStackedWidget,
     QTabWidget,
@@ -45,6 +44,7 @@ from .profiles.sync_back import (
 from .state import AppState
 from .widgets import icons
 from .widgets.editor_panel import EditorPanel
+from .widgets.home_page import HomePage
 from .widgets.shell import SessionBar, SideNav, section_header
 from .widgets.sync_dialog import (
     ADD_IGNORE,
@@ -54,6 +54,7 @@ from .widgets.sync_dialog import (
     UPDATE_IGNORE,
     SyncDialog,
 )
+from .widgets.toast import Toast
 from .workers import (
     ActivateWorker,
     ConfigBackupWorker,
@@ -140,9 +141,17 @@ class MainWindow(QMainWindow):
         self._section_tabs: dict[str, QTabWidget] = {}
         self._section_pages: dict[str, int] = {}
         self.pages = QStackedWidget(self)
+        self.home = HomePage(self)
+        self.home.play_requested.connect(self._on_home_play)
+        self.home.open_requested.connect(self._on_home_open)
+        self.home.new_requested.connect(self._on_new_profile)
+        self.home.inbox_requested.connect(lambda: self._show_section(nav.SECTION_LIBRARY))
         for section in nav.SECTIONS:
-            if section.key == nav.SECTION_PROFILES:
-                page: QWidget = editor_page
+            if section.key == nav.SECTION_HOME:
+                page: QWidget = self.home
+                self._feature_containers[nav.FEATURE_HOME] = self.home
+            elif section.key == nav.SECTION_PROFILES:
+                page = editor_page
                 self._feature_containers[nav.FEATURE_EDITOR] = editor_page
             elif len(section.features) == 1:
                 page = self._make_tab_container()
@@ -210,7 +219,11 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(body, 1)
         central_layout.addWidget(self.session)
         self.setCentralWidget(central)
-        self.sidebar.set_current(nav.SECTION_PROFILES)
+        self.toast = Toast(central, bottom_margin=self.session.sizeHint().height() + 14)
+        self._activating_slug: str | None = None
+        self._running_slug: str | None = None
+        self.sidebar.set_current(nav.SECTION_HOME)
+        self.pages.setCurrentIndex(self._section_pages[nav.SECTION_HOME])
 
         # ---- workers (kept as attributes so they survive the call)
         self._scan_thread: QThread | None = None
@@ -218,7 +231,6 @@ class MainWindow(QMainWindow):
         self._activate_thread: QThread | None = None
         self._activating_profile: Profile | None = None
         self._activate_worker: ActivateWorker | None = None
-        self._progress: QProgressDialog | None = None
         self._testrunner_thread: QThread | None = None
         self._testrunner_worker: TestRunnerWorker | None = None
         self._testrunner_panel: TestRunnerPanel | None = None
@@ -395,6 +407,72 @@ class MainWindow(QMainWindow):
     def _status(self, msg: str) -> None:
         self.session.flash(msg)
 
+    def notify(
+        self,
+        message: str,
+        action_label: str | None = None,
+        action=None,
+        *,
+        error: bool = False,
+    ) -> None:
+        """Notification non bloquante (remplace les fenêtres d'information)."""
+        self.toast.show_message(message, action_label, action, error=error)
+
+    # ============================================================ home
+
+    def _refresh_home(self) -> None:
+        from datetime import datetime
+
+        from .home import build_cards
+
+        catalog = self.state.catalog
+        map_titles = (
+            {e.filename: e.display_title for e in catalog.maps()} if catalog else {}
+        )
+        counts: dict[str, int] = {}
+        if catalog is not None:
+            for prof in self.state.profiles:
+                counts[prof.slug] = len(self.state.effective_filenames(prof))
+        cards = build_cards(self.state.profiles, counts, map_titles, datetime.now())
+        pixmaps: dict[str, QPixmap | None] = {}
+        for prof in self.state.profiles:
+            path = self._profile_icon_path(prof)
+            pixmaps[prof.slug] = QPixmap(path) if path else None
+        self.home.set_cards(cards, pixmaps)
+        self.home.set_activity(self._activating_slug, self._running_slug)
+        try:
+            inbox = self.state.game.inbox_dir_effective
+        except KeyError:
+            inbox = None
+        from .profiles.inbox import count_waiting
+
+        self.home.set_waiting(count_waiting(inbox))
+
+    def _profile_by_slug(self, slug: str):
+        return next((p for p in self.state.profiles if p.slug == slug), None)
+
+    def _on_home_play(self, slug: str) -> None:
+        prof = self._profile_by_slug(slug)
+        if prof is None:
+            return
+        self._select_profile_row(prof)
+        self._on_activate()
+
+    def _on_home_open(self, slug: str) -> None:
+        prof = self._profile_by_slug(slug)
+        if prof is None:
+            return
+        self._select_profile_row(prof)
+        self._show_section(nav.SECTION_PROFILES)
+
+    def _select_profile_row(self, prof) -> None:
+        """Sélectionne un profil dans la liste latérale sans changer d'écran."""
+        row = self.state.profiles.index(prof)
+        self.profile_list.blockSignals(True)
+        self.profile_list.setCurrentRow(row)
+        self.profile_list.blockSignals(False)
+        self._select_profile(prof)
+
     def _on_internal_error(self) -> None:
         self.session.flash("⚠ Erreur interne : détails dans Outils › Journal de l'appli.", 15000)
 
@@ -474,6 +552,8 @@ class MainWindow(QMainWindow):
     def _show_section(self, key: str) -> None:
         self.sidebar.set_current(key)
         self.pages.setCurrentIndex(self._section_pages[key])
+        if key == nav.SECTION_HOME:
+            self._refresh_home()
         self._on_view_changed()
 
     def _show_feature_tab(self, key: str) -> None:
@@ -777,7 +857,7 @@ class MainWindow(QMainWindow):
         from .widgets.testrunner_dialog import SCOPE_PROFILE
 
         if self.state.catalog is None:
-            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
+            self.notify("Scan en cours, réessaye.")
             return
         mods_dir = self.state.game.library_mods_dir
         if mods_dir is None:
@@ -786,18 +866,14 @@ class MainWindow(QMainWindow):
         if scope == SCOPE_PROFILE:
             profile = self.state.current_profile
             if profile is None:
-                QMessageBox.information(
-                    self, "Aucun profil", "Sélectionne un profil à tester."
-                )
+                self.notify("Sélectionne un profil à tester.")
                 return
             filenames = self.state.effective_filenames(profile)
         else:
             filenames = sorted(self.state.catalog.entries)
         zip_paths = [mods_dir / f for f in filenames]
         if not zip_paths:
-            QMessageBox.information(
-                self, "Rien à tester", "Aucun mod à valider pour cette portée."
-            )
+            self.notify("Aucun mod à valider pour cette portée.")
             return
 
         exe_path: _Path | None = None
@@ -1068,9 +1144,7 @@ class MainWindow(QMainWindow):
         if not filenames:
             return
         if not self.state.profiles:
-            QMessageBox.information(
-                self, "Aucun profil", "Crée d'abord un profil pour y ajouter des mods."
-            )
+            self.notify("Crée d'abord un profil pour y ajouter des mods.")
             return
         names = [p.name for p in self.state.profiles]
         choice, ok = QInputDialog.getItem(
@@ -1107,11 +1181,7 @@ class MainWindow(QMainWindow):
             ):
                 self.editor.set_target(prof)
             self._status(f"{added} mod(s) ajouté(s) au profil « {prof.name} ».")
-            QMessageBox.information(
-                self,
-                "Mods ajoutés",
-                f"{added} mod(s) ajouté(s) au profil « {prof.name} ».",
-            )
+            self.notify(f"{added} mod(s) ajouté(s) au profil « {prof.name} ».")
         else:
             self._status(f"Aucun mod ajouté : déjà présents dans « {prof.name} ».")
 
@@ -1121,11 +1191,7 @@ class MainWindow(QMainWindow):
         if not filenames:
             return
         if not self.state.collections:
-            QMessageBox.information(
-                self,
-                "Aucune collection",
-                "Crée d'abord une collection pour y ajouter des mods.",
-            )
+            self.notify("Crée d'abord une collection pour y ajouter des mods.")
             return
         names = [c.name for c in self.state.collections]
         choice, ok = QInputDialog.getItem(
@@ -1171,7 +1237,7 @@ class MainWindow(QMainWindow):
                 f"\n\n{maps_skipped} carte(s) ignorée(s) : une carte ne peut pas "
                 "faire partie d'une collection (c'est un choix propre à chaque profil)."
             )
-        QMessageBox.information(self, "Ajouter à une collection", msg)
+        self.notify(msg)
 
     # ========================================================== collections
 
@@ -1229,11 +1295,7 @@ class MainWindow(QMainWindow):
         self._refresh_collections_ui()
         self._request_backup()
         if affected:
-            QMessageBox.information(
-                self,
-                "Collection supprimée",
-                "Retirée des profils : " + ", ".join(affected),
-            )
+            self.notify("Retirée des profils : " + ", ".join(affected))
 
     def _current_collection(self):
         row = self.collection_list.currentRow()
@@ -1253,7 +1315,7 @@ class MainWindow(QMainWindow):
         if not entries:
             return
         if self.state.catalog is None:
-            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
+            self.notify("Scan en cours, réessaye.")
             return
         names = [e.filename for e in entries]
         preview = "\n".join(
@@ -1297,7 +1359,7 @@ class MainWindow(QMainWindow):
                 result.affected_collections
             )
         self._status(f"{len(result.removed_files)} mod(s) supprimé(s).")
-        QMessageBox.information(self, "Suppression terminée", msg)
+        self.notify(msg)
 
     # ============================================================= scan
 
@@ -1338,6 +1400,7 @@ class MainWindow(QMainWindow):
         self._refresh_profiles_ui()
         self.session.set_library(len(catalog))
         self._refresh_session()
+        self._refresh_home()
         self._warn_broken_configs()
 
     def _warn_broken_configs(self) -> None:
@@ -1451,11 +1514,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Export échoué", str(exc))
             return
         self._status(f"Config exportée : {path.name}")
-        QMessageBox.information(
-            self,
-            "Export terminé",
-            f"Profils, collections et carrières exportés vers :\n{path}",
-        )
+        self.notify(f"Profils, collections et carrières exportés vers :\n{path}")
 
     def _on_import_config(self) -> None:
         try:
@@ -1513,14 +1572,10 @@ class MainWindow(QMainWindow):
         self.state.refresh_profiles()
         self._refresh_profiles_ui()
         self._request_backup()
-        QMessageBox.information(
-            self,
-            "Import terminé",
-            f"{result.profiles_imported} profil(s) et "
+        self.notify(f"{result.profiles_imported} profil(s) et "
             f"{result.collections_imported} collection(s) et "
             f"{result.careers_imported} carrière(s) importé(s)"
-            + (" (remplacement)." if result.replaced else " (fusion)."),
-        )
+            + (" (remplacement)." if result.replaced else " (fusion)."))
 
     def _apply_audit(self, profile, remove: list[str], add: list[str]) -> None:
         changed = False
@@ -1577,9 +1632,7 @@ class MainWindow(QMainWindow):
                     "\n".join(lines) + "\n\nErreurs :\n" + "\n".join(result.errors),
                 )
             else:
-                QMessageBox.information(
-                    self, "Routes AutoDrive", "\n".join(lines)
-                )
+                self.notify("\n".join(lines))
         else:
             QMessageBox.warning(
                 self,
@@ -1591,7 +1644,7 @@ class MainWindow(QMainWindow):
 
     def _on_activate(self) -> None:
         if self.state.current_profile is None:
-            QMessageBox.information(self, "Aucun profil", "Sélectionne un profil.")
+            self.notify("Sélectionne un profil.")
             return
         if game_process_running(self.state.game_key):
             QMessageBox.warning(
@@ -1602,7 +1655,7 @@ class MainWindow(QMainWindow):
             )
             return
         if self.state.catalog is None:
-            QMessageBox.information(self, "Bibliothèque", "Scan en cours, réessaye.")
+            self.notify("Scan en cours, réessaye.")
             return
         missing = self.state.current_profile.missing_against(
             self.state.catalog, self.state.collection_mods_map()
@@ -1625,16 +1678,11 @@ class MainWindow(QMainWindow):
         if profile is None or self.state.catalog is None:
             return
         self._activating_profile = profile
+        self._activating_slug = profile.slug
         self.session.set_game(nav.GAME_ACTIVATING)
-        self._progress = QProgressDialog(
-            "Activation…", "Annuler", 0, 100, self
-        )
-        self._progress.setWindowTitle("Activation du profil")
-        self._progress.setWindowModality(Qt.WindowModality.WindowModal)
-        self._progress.setAutoClose(True)
-        self._progress.setCancelButton(None)  # cancel unsupported
-        self._progress.setMinimumDuration(0)
-        self._progress.show()
+        self.home.set_activity(self._activating_slug, self._running_slug)
+        self.activate_btn.setEnabled(False)
+        self.activate_btn.setText("Activation…")
 
         self._activate_worker = ActivateWorker(
             profile,
@@ -1650,20 +1698,24 @@ class MainWindow(QMainWindow):
         self._activate_thread.start()
 
     def _on_activate_progress(self, current: int, total: int, message: str) -> None:
-        # Progress signal might arrive after _on_activate_done has cleared _progress
-        progress = self._progress
-        if progress is None:
+        # Progress may arrive after _on_activate_done: ignore it then.
+        slug = self._activating_slug
+        if slug is None:
             return
-        progress.setMaximum(total)
-        progress.setValue(current)
-        progress.setLabelText(message)
+        percent = int(current * 100 / total) if total else 0
+        self.home.set_progress(slug, percent, message)
+        self.session.flash(message, 3000)
+
+    def _end_activation(self) -> None:
+        self._activating_slug = None
+        self.session.set_game(nav.GAME_CLOSED)
+        self.activate_btn.setEnabled(self.state.current_profile is not None)
+        self._update_activate_btn_icon()
 
     def _on_activate_done(self, report: object, launched: bool) -> None:
-        if self._progress is not None:
-            self._progress.setValue(self._progress.maximum())
-            self._progress = None
-        self.session.set_game(nav.GAME_CLOSED)
+        self._end_activation()
         if not isinstance(report, ActivationReport):
+            self._refresh_home()
             return
         log.info(
             "Activation de %s : %d activés, %d mis à l'abri, %d manquants, %d erreurs",
@@ -1679,32 +1731,20 @@ class MainWindow(QMainWindow):
             played.mark_played()  # the app reopens on this profile next time
             played.save()
             self._request_backup()
-        summary = (
-            f"{len(report.activated)} mod(s) activé(s) "
-            f"({sum(1 for m in report.activated if m.method == 'hardlink')} hardlinks, "
-            f"{sum(1 for m in report.activated if m.method == 'copy')} copies)."
-        )
-        if report.missing:
-            summary += f"\n⚠ {len(report.missing)} manquant(s) ignoré(s)."
-        if report.rescued:
-            names = ", ".join(p.name for p in report.rescued[:5])
-            more = f" (+{len(report.rescued) - 5})" if len(report.rescued) > 5 else ""
-            summary += (
-                f"\n\n📥 {len(report.rescued)} mod(s) du dossier du jeu absent(s) de la "
-                f"bibliothèque ou différent(s) ont été mis à l'abri : {names}{more}.\n"
-                f"Dossier : {report.rescued[0].parent}\n"
-                "« Nouveaux mods » te proposera de les importer."
-            )
+        from .profiles.activator import activation_summary
+
+        summary = activation_summary(report, launched)
         if report.errors:
             errs = "\n".join(f"{name}: {msg}" for name, msg in report.errors[:5])
             QMessageBox.warning(self, "Activation : erreurs", f"{errs}\n\n{summary}")
-        else:
-            QMessageBox.information(
-                self,
-                "Activation OK",
-                summary + ("\n✓ FS25 lancé." if launched else ""),
+        elif report.rescued:
+            self.notify(
+                summary, "Ranger", lambda: self._show_section(nav.SECTION_LIBRARY)
             )
+        else:
+            self.notify(summary)
         if launched and self.state.current_profile is not None:
+            self._running_slug = self.state.current_profile.slug
             self._watching_for_profile = self.state.current_profile.slug
             self._watching_baseline = snapshot_fingerprints(
                 self.state.game.mods_dir,
@@ -1712,22 +1752,23 @@ class MainWindow(QMainWindow):
             )
             self._watcher.start()
         self._refresh_session()
+        self._refresh_home()
 
     def _on_activate_failed(self, message: str) -> None:
-        if self._progress is not None:
-            self._progress.cancel()
-            self._progress = None
-        self.session.set_game(nav.GAME_CLOSED)
+        self._end_activation()
+        self._refresh_home()
         QMessageBox.critical(self, "Activation échouée", message)
 
     # ============================================================ watcher
 
     def _on_game_started(self) -> None:
         self.session.set_game(nav.GAME_RUNNING)
+        self.home.set_activity(self._activating_slug, self._running_slug)
         self._status("FS25 détecté en cours d'exécution.")
 
     def _on_game_stopped(self) -> None:
         self.session.set_game(nav.GAME_CLOSED)
+        self._running_slug = None
         self._status("FS25 fermé — vérification de la synchronisation…")
         try:
             mods_dir = self.state.game.mods_dir
@@ -1736,6 +1777,7 @@ class MainWindow(QMainWindow):
         self._sync_career_after_game()
         self._reconcile_after_game()
         self._refresh_session()
+        self._refresh_home()
         # Analyse du log FS25 de la session qui vient de se terminer : on ouvre
         # l'onglet Log uniquement si des problèmes sont détectés.
         if mods_dir is not None:

@@ -222,6 +222,14 @@ def level_colors(t: Tokens, level: str) -> tuple[str, str]:
     return t.red_soft, t.red_text
 
 
+def toast_colors(t: Tokens) -> tuple[str, str, str]:
+    """Fond, texte et action d'une notification : inversés par rapport au thème
+    (bandeau foncé en clair, clair en sombre) pour se détacher du contenu."""
+    if t.name == MODE_DARK:
+        return t.text, t.bg, LIGHT.accent_soft_text
+    return t.text, t.surface, DARK.accent_soft_text
+
+
 # ------------------------------------------------------------- feuille de style
 
 
@@ -232,6 +240,7 @@ def build_stylesheet(t: Tokens) -> str:
     propriété dynamique (``role="muted"``, ``role="card"``, ``variant="primary"``…)
     que cette feuille habille.
     """
+    toast_bg, toast_fg, toast_action = toast_colors(t)
     return f"""
 QWidget {{
     color: {t.text};
@@ -263,7 +272,7 @@ QSplitter::handle:horizontal {{ width: 1px; }}
 QPushButton, QToolButton {{
     background: {t.surface}; color: {t.text};
     border: 1px solid {t.border_strong}; border-radius: 8px;
-    padding: 6px 12px; min-height: 20px;
+    padding: 6px 12px;
 }}
 QPushButton:hover, QToolButton:hover {{
     background: {t.surface2}; border-color: {t.muted};
@@ -414,4 +423,46 @@ QLabel[role="dot"] {{ border-radius: 4px; background: {t.border_strong}; }}
 QLabel[role="dot"][level="ok"] {{ background: {t.accent}; }}
 QLabel[role="dot"][level="warn"] {{ background: {t.amber}; }}
 QTabWidget[role="subtabs"]::pane {{ border: 0; border-top: 1px solid {t.border}; }}
+
+QWidget[role="toast"] {{
+    background: {toast_bg}; border-radius: 12px;
+}}
+QWidget[role="toast"][level="error"] {{ background: {t.red}; }}
+QLabel[role="toast-text"] {{ color: {toast_fg}; font-size: 13px; }}
+QPushButton[role="toast-action"] {{
+    background: transparent; border: 0; color: {toast_action};
+    font-weight: 700; padding: 4px 8px;
+}}
+QPushButton[role="toast-action"]:hover {{ text-decoration: underline; }}
+QToolButton[role="toast-close"] {{ background: transparent; border: 0; padding: 4px; }}
+
+QWidget[role="card"] {{
+    background: {t.surface}; border: 1px solid {t.border}; border-radius: 14px;
+}}
+QWidget[role="card"][hero="true"] {{ border-radius: 16px; }}
+QPushButton[role="newcard"] {{
+    background: transparent; border: 2px dashed {t.border_strong}; border-radius: 14px;
+    color: {t.muted}; font-weight: 600;
+}}
+QPushButton[role="newcard"]:hover {{ border-color: {t.accent}; color: {t.text}; }}
+QLabel[role="hero-title"] {{ font-size: 28px; font-weight: 700; }}
+QLabel[role="page-title"] {{ font-size: 24px; font-weight: 650; }}
+QLabel[role="card-title"] {{ font-size: 15px; font-weight: 650; }}
+QLabel[role="chip"] {{
+    background: {t.surface2}; border: 1px solid {t.border}; border-radius: 10px;
+    padding: 2px 9px; font-size: 12px;
+}}
+QPushButton[variant="soft"] {{
+    background: {t.accent_soft}; color: {t.accent_soft_text}; border: 0; font-weight: 650;
+}}
+QPushButton[variant="soft"]:hover {{ background: {t.track}; }}
+QPushButton[variant="soft"]:disabled {{ background: {t.surface2}; color: {t.muted}; }}
+QWidget[role="banner"] {{
+    background: {t.blue_soft}; border-radius: 12px;
+}}
+QWidget[role="banner"] QLabel {{ color: {t.blue_text}; }}
+QPushButton[role="banner-action"] {{
+    background: transparent; color: {t.blue_text}; border: 1px solid {t.blue_text};
+    font-weight: 600;
+}}
 """

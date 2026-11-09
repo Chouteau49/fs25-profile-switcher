@@ -26,12 +26,15 @@ def app():
 
 def test_sidenav_lists_every_section_and_tracks_current(app):
     side = SideNav()
-    for s in nav.SECTIONS:
+    for s in nav.nav_sections():
         assert side.button(s.key).text() == s.label
     side.set_current(nav.SECTION_DIAGNOSTIC)
     assert side.current() == nav.SECTION_DIAGNOSTIC
     side.set_current(nav.SECTION_CAREER)
     assert side.current() == nav.SECTION_CAREER
+    side.set_current(nav.SECTION_PROFILES)  # hors barre : plus rien de coché
+    assert side.current() == nav.SECTION_PROFILES
+    assert not any(side.button(s.key).isChecked() for s in nav.nav_sections())
 
 
 def test_sidenav_emits_section_on_click(app):
@@ -96,8 +99,8 @@ def test_window_has_no_tab_bar_or_toolbar_anymore(window):
     assert not hasattr(window, "tabs")
 
 
-def test_window_starts_on_profiles_with_badge(window):
-    assert window.sidebar.current() == nav.SECTION_PROFILES
+def test_window_starts_on_home_with_badge(window):
+    assert window.sidebar.current() == nav.SECTION_HOME
     assert window.sidebar.button(nav.SECTION_LIBRARY).badge_text() == "1"
 
 
@@ -111,7 +114,7 @@ def test_show_feature_opens_section_and_subtab(window):
 
 def test_every_view_builds_without_error(window):
     for feature in nav.all_features():
-        if feature.key == nav.FEATURE_EDITOR:
+        if feature.key in (nav.FEATURE_EDITOR, nav.FEATURE_HOME):
             continue
         window._show_feature_tab(feature.key)
         assert feature.key in window._feature_panels, feature.key

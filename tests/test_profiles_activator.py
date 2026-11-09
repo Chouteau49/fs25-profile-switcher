@@ -312,3 +312,36 @@ def test_game_process_running(
         psutil, "process_iter", lambda _attrs: [_FakeProcess(n) for n in running]
     )
     assert game_process_running(game) is expected
+
+
+# ---- résumé de fin d'activation (notification)
+
+
+def _mod(name: str, method: str):
+    from fsmods_gui.profiles.activator import ModActivation
+
+    return ModActivation(name, method, Path(name), Path(name))
+
+
+def test_activation_summary_hardlinks_and_launch():
+    from fsmods_gui.profiles.activator import ActivationReport, activation_summary
+
+    report = ActivationReport("Montagne", activated=[_mod("a.zip", "hardlink")] * 3)
+    text = activation_summary(report, launched=True)
+    assert text == "Montagne : 3 mod(s) activé(s) (liens physiques). FS25 lancé via Steam."
+
+
+def test_activation_summary_copies_missing_rescued():
+    from fsmods_gui.profiles.activator import ActivationReport, activation_summary
+
+    report = ActivationReport(
+        "Plaines",
+        activated=[_mod("a.zip", "hardlink"), _mod("b.zip", "copy")],
+        missing=["c.zip"],
+        rescued=[Path("_inbox/d.zip")],
+    )
+    text = activation_summary(report, launched=False)
+    assert "(1 liens, 1 copies)" in text
+    assert "1 manquant(s) ignoré(s)." in text
+    assert "mis à l'abri" in text
+    assert "FS25 lancé" not in text

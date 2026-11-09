@@ -5,27 +5,30 @@ L'interface graphique `fsmods-gui` (du projet **fs25-profile-switcher**) permet 
 ## Vue d'ensemble
 
 ```
-┌──────────────────┬──────────────────────────────────────────┐
-│ ⌂ Profils        │                       [ ▶ Jouer · Montagne ]│
-│ ≡ Bibliothèque 2 │  Nom    : Montagne                        │
-│ ◎ Carrière       │  Carte  : Alpenland                       │
-│ ∿ Diagnostic     │  Notes  : …                               │
-│                  │  [Contenu] [Bibliothèque]                 │
-│ PROFILS   + ⧉ 🗑 │  galerie des mods du profil               │
-│  Montagne        │                                           │
-│  Plaines         │                                           │
-│ COLLECTIONS + ⧉ 🗑│                                          │
-│ ↻  ⚙  🎨          │                                          │
-├──────────────────┴──────────────────────────────────────────┤
-│ ● FS25 fermé · Dans le dossier du jeu : Montagne · 812 mods  │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────┬──────────────────────────────────────────────┐
+│ ⌂ Accueil        │  Tes parties                  [+ Nouveau profil]│
+│ ≡ Bibliothèque 2 │  ┌ 2 mods attendent d'être rangés  [Ranger] ┐  │
+│ ◎ Carrière       │  ┌──────────────┬───────────────────────────┐ │
+│ ∿ Diagnostic     │  │ vignette     │ DERNIÈRE PARTIE · hier     │ │
+│                  │  │ de la carte  │ Montagne   142 mods        │ │
+│ PROFILS   + ⧉ 🗑 │  │              │ [▶ Jouer] [Modifier]       │ │
+│  Montagne        │  └──────────────┴───────────────────────────┘ │
+│  Plaines         │  Autres profils : [Plaines ▶] [No Man's ▶] [+] │
+│ COLLECTIONS + ⧉ 🗑│                          ┌ Mod retiré. Annuler ┐│
+│ ↻  ⚙  🎨          │                                               │
+├──────────────────┴──────────────────────────────────────────────┤
+│ ● FS25 fermé · Dans le dossier du jeu : Montagne · 812 mods       │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
+- **Accueil** (au démarrage) : la dernière partie jouée en grand, puis les autres profils en cartes. Chaque carte a son bouton **Jouer** (active les mods du profil puis lance FS25) et **Modifier** (ouvre l'éditeur du profil). Pendant l'activation, la carte affiche la progression ; pendant la partie, son bouton indique « En cours » et les autres sont désactivés.
 - **Barre latérale** : quatre espaces.
-  - **Profils** : l'éditeur du profil ou de la collection choisi(e) dans les listes en dessous.
+  - **Accueil**.
   - **Bibliothèque** : les mods **à ranger** (téléchargés via ModHub, déposés dans `_inbox`, ou mis à l'abri lors d'une activation). La pastille compte les zips en attente dans `_inbox`.
   - **Carrière** : objectifs du profil choisi. Changer de profil dans la liste reste sur la Carrière.
   - **Diagnostic** : Log FS25, Audit sauvegarde, Doublons, Routes AutoDrive, Tester les mods, Statistiques.
+- **Éditeur d'un profil** : ouvert depuis une carte de l'accueil ou en cliquant un profil (ou une collection) dans la liste latérale.
+- **Notifications** (en bas à droite) : les informations s'affichent sans bloquer et disparaissent seules. Après avoir retiré ou exclu un mod dans l'éditeur, **Annuler** remet le profil comme avant.
 - **Listes Profils et Collections** : un fichier JSON par profil sous `library/profiles/`. Les boutons + / dupliquer / supprimer sont à droite de chaque titre.
 - **Éditeur** : choisir la carte (un mod de carte, ou une carte officielle du jeu / d'un DLC, avec sa vignette), ajouter / retirer des mods. Les modifications sont sauvegardées automatiquement.
 - **Bas de la barre latérale** : rescanner la bibliothèque, **Outils** (exporter / importer la config, journal de l'appli) et **Thème**.

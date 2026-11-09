@@ -16,6 +16,13 @@ def test_text_pairs_are_readable(tokens, pair):
     assert theme.contrast(fg, bg) >= 4.5, f"{tokens.name} {pair}"
 
 
+@pytest.mark.parametrize("tokens", [LIGHT, DARK], ids=["clair", "sombre"])
+def test_toast_colors_are_readable(tokens):
+    bg, fg, action = theme.toast_colors(tokens)
+    assert theme.contrast(fg, bg) >= 4.5
+    assert theme.contrast(action, bg) >= 4.5
+
+
 def test_both_themes_define_every_token_as_hex():
     for tokens in (LIGHT, DARK):
         for key, value in tokens.as_dict().items():

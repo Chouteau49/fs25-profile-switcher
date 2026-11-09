@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.12.0] - 2026-11-09
+
+Troisième étape de la refonte : un vrai écran d'accueil, et plus de fenêtres qui
+interrompent pour rien.
+
+### Added
+
+- **Accueil** (écran de démarrage) : la dernière partie en grand (vignette de la carte, nombre de mods, collections, date) avec **Jouer** et **Modifier le profil**, puis les autres profils en cartes, chacune avec son bouton **Jouer**, et une carte « Nouveau profil ». Un profil sans image de carte reçoit une vignette de champs stylisés, propre à son nom.
+- **Bandeau « mods à ranger »** sur l'accueil, qui mène à Bibliothèque.
+- **Notifications** en bas à droite : elles remplacent les 15 fenêtres d'information (activation réussie, mods ajoutés, export / import terminé…) et disparaissent seules.
+- **« Annuler »** après avoir retiré ou exclu un mod (ou une carte) dans l'éditeur d'un profil ou d'une collection.
+
+### Changed
+
+- **Activation sans fenêtre modale** : la progression s'affiche dans la carte du profil (barre et étape en cours) et dans la barre de session ; les autres boutons Jouer sont désactivés pendant l'activation puis pendant la partie (« En cours »).
+- La fin d'activation est résumée dans une notification ; si des mods du dossier du jeu ont été mis à l'abri, elle propose **Ranger**.
+- L'éditeur d'un profil ne figure plus dans la barre latérale : on l'ouvre depuis une carte de l'accueil ou depuis la liste des profils.
+
+### Fixed
+
+- Liste des cartes : les cartes officielles affichaient leur nature en double (« Riverbend Springs (carte officielle) · carte officielle »), régression de 0.10.0.
+- Feuille de style : la hauteur minimale imposée à tous les boutons écrasait les hauteurs voulues (gros bouton Jouer, carte « Nouveau profil »).
+
 ## [0.11.0] - 2026-11-09
 
 Deuxième étape de la refonte : une vraie navigation à la place des neuf onglets.

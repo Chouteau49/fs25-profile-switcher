@@ -13,7 +13,7 @@ NOW = datetime(2026, 11, 9, 12, 0, 0)
 def test_every_former_tab_has_a_place():
     keys = {f.key for f in nav.all_features()}
     assert keys == {
-        "editor", "newmods", "career", "log", "audit",
+        "home", "editor", "newmods", "career", "log", "audit",
         "duplicates", "autodrive", "testrunner", "stats",
     }
 
@@ -21,6 +21,12 @@ def test_every_former_tab_has_a_place():
 def test_feature_keys_are_unique():
     keys = [f.key for f in nav.all_features()]
     assert len(keys) == len(set(keys))
+
+
+def test_home_first_and_editor_out_of_nav():
+    keys = [s.key for s in nav.nav_sections()]
+    assert keys[0] == nav.SECTION_HOME
+    assert nav.SECTION_PROFILES not in keys
 
 
 def test_section_of():

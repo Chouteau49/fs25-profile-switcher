@@ -52,6 +52,24 @@ class ActivationReport:
         return not self.errors and not self.missing
 
 
+def activation_summary(report: ActivationReport, launched: bool) -> str:
+    """Texte court de fin d'activation (notification de la fenêtre principale)."""
+    links = sum(1 for m in report.activated if m.method == "hardlink")
+    copies = sum(1 for m in report.activated if m.method == "copy")
+    how = "liens physiques" if not copies else f"{links} liens, {copies} copies"
+    parts = [f"{report.profile_name} : {len(report.activated)} mod(s) activé(s) ({how})."]
+    if report.missing:
+        parts.append(f"{len(report.missing)} manquant(s) ignoré(s).")
+    if report.rescued:
+        parts.append(
+            f"{len(report.rescued)} mod(s) du dossier du jeu inconnu(s) ou différent(s) "
+            "mis à l'abri, à ranger dans Bibliothèque."
+        )
+    if launched:
+        parts.append("FS25 lancé via Steam.")
+    return " ".join(parts)
+
+
 class ProgressCallback(Protocol):
     def __call__(self, current: int, total: int, message: str) -> None: ...
 
