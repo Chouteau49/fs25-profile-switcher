@@ -31,12 +31,12 @@ ST_UNAVAILABLE = "unavailable"  # a needed statistic cannot be read
 ST_MANUAL = "manual"            # waiting for the player to validate it
 
 STATUS_LABELS_FR = {
-    ST_LOCKED: "🔒 Verrouillé",
-    ST_NOT_STARTED: "⚪ Non commencé",
-    ST_IN_PROGRESS: "🟠 En cours",
-    ST_COMPLETED: "🟢 Terminé",
-    ST_UNAVAILABLE: "🔴 Non disponible",
-    ST_MANUAL: "🔵 À valider",
+    ST_LOCKED: "Verrouillé",
+    ST_NOT_STARTED: "Non commencé",
+    ST_IN_PROGRESS: "En cours",
+    ST_COMPLETED: "Terminé",
+    ST_UNAVAILABLE: "Non disponible",
+    ST_MANUAL: "À valider",
 }
 
 # ---- reward state (a money reward is never applied twice)
@@ -52,18 +52,18 @@ MODE_MANUAL_REWARDS = "manual_rewards"
 MODE_REQUIRED_REWARDS = "required_rewards"
 
 MODE_LABELS_FR = {
-    MODE_OFF: "⚪ Désactivé",
-    MODE_OBJECTIVES: "🟢 Objectifs uniquement",
-    MODE_MANUAL_REWARDS: "🟡 Objectifs + récompenses manuelles",
-    MODE_REQUIRED_REWARDS: "🔴 Objectifs + récompenses obligatoires",
+    MODE_OFF: "Désactivé",
+    MODE_OBJECTIVES: "Objectifs uniquement",
+    MODE_MANUAL_REWARDS: "Objectifs + récompenses manuelles",
+    MODE_REQUIRED_REWARDS: "Objectifs + récompenses obligatoires",
 }
 
 DIFFICULTY_LABELS_FR = {
-    1: "⭐ Facile",
-    2: "⭐⭐ Normal",
-    3: "⭐⭐⭐ Difficile",
-    4: "⭐⭐⭐⭐ Expert",
-    5: "⭐⭐⭐⭐⭐ Légendaire",
+    1: "Facile",
+    2: "Normal",
+    3: "Difficile",
+    4: "Expert",
+    5: "Légendaire",
 }
 
 

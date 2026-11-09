@@ -32,27 +32,27 @@ Q_MANUAL = "manual"
 Q_NA = "na"
 
 QUALITY_LABELS_FR = {
-    Q_AUTO: "🟢 Automatique",
-    Q_CALC: "🟠 Calculée",
-    Q_MANUAL: "🔵 Manuelle",
-    Q_NA: "🔴 Non disponible",
+    Q_AUTO: "Automatique",
+    Q_CALC: "Calculée",
+    Q_MANUAL: "Manuelle",
+    Q_NA: "Non disponible",
 }
 
 CATEGORIES_FR = {
-    "finance": "💰 Finances",
-    "equipment": "🚜 Matériel",
-    "land": "🌾 Terres / champs",
-    "crops": "🌱 Cultures",
-    "work": "🛠 Travaux agricoles",
-    "eta": "🚛 ETA / contrats",
-    "animals": "🐄 Animaux",
-    "production": "🏭 Productions",
-    "vine": "🍇 Viticulture",
-    "olive": "🫒 Oléiculture",
-    "buildings": "🏗 Bâtiments",
-    "farms": "🏦 Fermes",
+    "finance": "Finances",
+    "equipment": "Matériel",
+    "land": "Terres / champs",
+    "crops": "Cultures",
+    "work": "Travaux agricoles",
+    "eta": "ETA / contrats",
+    "animals": "Animaux",
+    "production": "Productions",
+    "vine": "Viticulture",
+    "olive": "Oléiculture",
+    "buildings": "Bâtiments",
+    "farms": "Fermes",
     "time": "⏱ Temps de jeu",
-    "general": "🎯 Général",
+    "general": "Général",
 }
 
 

@@ -4,14 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QButtonGroup,
     QComboBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QMessageBox,
@@ -19,8 +18,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QStackedWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -33,14 +30,12 @@ from ..career.objectives import (
     DIFFICULTY_LABELS_FR,
     MODE_LABELS_FR,
     MODE_OFF,
-    RW_CLAIMED,
     RW_PENDING,
     ST_COMPLETED,
     ST_LOCKED,
     ST_NOT_STARTED,
     STATUS_LABELS_FR,
     Objective,
-    can_mark_paid,
     claim_reward,
     complete_manually,
     level_for_xp,
@@ -48,6 +43,8 @@ from ..career.objectives import (
     set_reward_paid,
     summarize,
 )
+from ..career.presentation import group_objectives
+from ..career.presentation import subtitle as card_subtitle
 from ..career.stats import (
     CATEGORIES_FR,
     Q_NA,
@@ -71,22 +68,21 @@ from .career_dialogs import (
     confirm_reward,
 )
 from .history_chart import HistoryChart
+from .objective_cards import ObjectiveCards
 from .toast import notify
 
-# Statistics shown as dashboard cards: (key, icon).
+# Statistics shown as dashboard cards.
 _CARDS = (
-    ("netWorth", "💰"),
-    ("money", "💵"),
-    ("land.area", "🌾"),
-    ("land.count", "🧩"),
-    ("vehicles.count", "🚜"),
-    ("animals.total", "🐄"),
-    ("contracts.completed", "🚛"),
-    ("productions.count", "🏭"),
-    ("playTime", "⏱️"),
+    "netWorth",
+    "money",
+    "land.area",
+    "land.count",
+    "vehicles.count",
+    "animals.total",
+    "contracts.completed",
+    "productions.count",
+    "playTime",
 )
-_COL_PAID = 8
-_QUALITY_ICON = {"auto": "🟢", "calc": "🟠", "manual": "🔵", "na": "🔴"}
 
 
 class CareerPanel(QWidget):
@@ -236,25 +232,10 @@ class CareerPanel(QWidget):
         filters.addWidget(self.farm_filter)
         filters.addStretch(1)
 
-        self.table = QTableWidget(self)
-        self.table.setColumnCount(9)
-        self.table.setHorizontalHeaderLabels(
-            ["Statut", "Objectif", "Ferme", "Catégorie", "Difficulté", "Progression",
-             "Actuel / cible", "Récompense", "💰 Versé"]
-        )
-        paid_header = self.table.horizontalHeaderItem(_COL_PAID)
-        assert paid_header is not None  # created by setHorizontalHeaderLabels
-        paid_header.setToolTip(
-            "Coche quand tu as ajouté l'argent de la récompense sur ta ferme "
-            "(PowerTools, F12). Disponible une fois l'objectif terminé."
-        )
-        self.table.itemChanged.connect(self._on_table_item_changed)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.table.itemSelectionChanged.connect(self._update_actions)
+        self.cards = ObjectiveCards(self)
+        self.cards.selected.connect(self._on_card_selected)
+        self.cards.paid_toggled.connect(self._on_paid_toggled)
+        self._selected_id: str | None = None
 
         self.validate_btn = QPushButton("Valider (objectif manuel)", self)
         icons.bind(self.validate_btn, "check")
@@ -300,7 +281,7 @@ class CareerPanel(QWidget):
         filters.addWidget(template_btn)
         filters.addWidget(custom_btn)
         obj.addLayout(filters)
-        obj.addWidget(self.table, 1)
+        obj.addWidget(self.cards, 1)
         obj.addWidget(self.detail_label)
         obj.addLayout(actions)
 
@@ -323,6 +304,10 @@ class CareerPanel(QWidget):
             btn.setProperty("role", "segment")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             self._view_group.addButton(btn, i)
+            # Réserve la largeur du texte en gras (sinon tronqué une fois coché).
+            bold = btn.font()
+            bold.setBold(True)
+            btn.setMinimumWidth(QFontMetrics(bold).horizontalAdvance(btn.text()) + 40)
             sw.addWidget(btn)
         self._view_group.idClicked.connect(self.show_view)
         switch_row = QHBoxLayout()
@@ -413,13 +398,13 @@ class CareerPanel(QWidget):
         dot_color = {
             "auto": t.accent, "calc": t.amber, "manual": t.blue, "na": t.red,
         }
-        for i, (key, _icon) in enumerate(_CARDS):
+        for i, key in enumerate(_CARDS):
             stat = snapshot.get(key)
             # Sans sauvegarde lue, on affiche quand même le nom lisible, jamais la clé.
             label = stat.label if stat else STAT_DEFS.get(key, (key,))[0]
             value = format_stat(stat) if stat else "—"
             quality = stat.quality if stat else Q_NA
-            quality_text = QUALITY_LABELS_FR[quality].split(" ", 1)[-1]
+            quality_text = QUALITY_LABELS_FR[quality]
             card = QLabel(
                 f"<span style='font-size:12px;color:{t.muted}'>{label}</span><br>"
                 f"<span style='font-size:20px;font-weight:700'>{value}</span><br>"
@@ -440,26 +425,26 @@ class CareerPanel(QWidget):
         self.progress_bar.setFormat(f"Objectifs : {s.percent:.0f} %")
         extra = []
         if s.unavailable:
-            extra.append(f"🔴 {s.unavailable} non disponibles")
+            extra.append(f"{s.unavailable} non disponibles")
         if s.manual:
-            extra.append(f"🔵 {s.manual} à valider")
+            extra.append(f"{s.manual} à valider")
         if s.locked:
-            extra.append(f"🔒 {s.locked} verrouillés")
+            extra.append(f"{s.locked} verrouillés")
         self.summary_label.setText(
-            f"🟢 {s.completed} terminés · 🟠 {s.in_progress} en cours · "
-            f"⚪ {s.not_started} non commencés"
+            f"{s.completed} terminés · {s.in_progress} en cours · "
+            f"{s.not_started} non commencés"
             + ("".join(f" · {e}" for e in extra))
         )
         level, into, need = level_for_xp(s.xp)
-        badges = ", ".join(f"🏅 {b}" for b in dict.fromkeys(s.badges)) or "aucun"
+        badges = ", ".join(dict.fromkeys(s.badges)) or "aucun"
         money = ""
         if s.money_earned:
             money = (
-                f" · 💰 Versé : {format_value(s.money_claimed, '€')} sur "
+                f" · versé : {format_value(s.money_claimed, '€')} sur "
                 f"{format_value(s.money_earned, '€')} gagnés"
             )
         self.level_label.setText(
-            f"⭐ Niveau {level} — {s.xp} XP ({into}/{need} avant le suivant) · Badges : {badges}"
+            f"Niveau {level} · {s.xp} XP ({into}/{need} avant le suivant) · badges : {badges}"
             + money
         )
 
@@ -474,7 +459,7 @@ class CareerPanel(QWidget):
         for obj in pending:
             row = QHBoxLayout()
             row.addWidget(
-                QLabel(f"{obj.name} — 💰 +{format_value(obj.reward.money, '€')}", self.rewards_box),
+                QLabel(f"{obj.name} : +{format_value(obj.reward.money, '€')}", self.rewards_box),
                 1,
             )
             btn = QPushButton("Attribuer la récompense", self.rewards_box)
@@ -514,87 +499,36 @@ class CareerPanel(QWidget):
 
     def _fill_table(self) -> None:
         self._rows = self._visible_objectives()
-        self.table.blockSignals(True)  # itemChanged must only fire on user clicks
-        self.table.clearContents()
-        self.table.setRowCount(len(self._rows))
-        for r, o in enumerate(self._rows):
-            cur = format_value(o.current_value, o.unit) if o.condition else "—"
-            if o.is_leaf:
-                text = f"{cur} / {o.operator} {format_value(o.target, o.unit)}"
-            elif o.condition is not None:
-                text = f"combiné ({len(o.condition.leaves())} conditions)"
-            else:
-                text = "manuel"
-            reward = []
-            if o.reward.money:
-                reward.append(f"💰 {format_value(o.reward.money, '€')}")
-            if o.reward.xp:
-                reward.append(f"⭐ {o.reward.xp} XP")
-            if o.reward.badge:
-                reward.append(f"🏅 {o.reward.badge}")
-            state = {RW_PENDING: " (à attribuer)", RW_CLAIMED: " ✅"}.get(
-                o.reward_state, ""
-            )
-            values = [
-                STATUS_LABELS_FR[o.status],
-                o.name + (" (optionnel)" if o.optional else ""),
-                self._farm_label(o.farm),
+        names = {o.id: o.name for o in self._career.objectives}
+        self.cards.set_groups(
+            group_objectives(self._rows),
+            lambda o: card_subtitle(
+                o,
                 CATEGORIES_FR.get(o.category, o.category),
-                DIFFICULTY_LABELS_FR.get(o.difficulty, ""),
-                None,
-                text,
-                (" · ".join(reward) + state) if reward else "—",
-            ]
-            for c, v in enumerate(values):
-                if v is not None:
-                    item = QTableWidgetItem(v)
-                    if o.description and c == 1:
-                        item.setToolTip(o.description)
-                    self.table.setItem(r, c, item)
-            bar = QProgressBar(self.table)
-            bar.setRange(0, 1000)
-            bar.setValue(round(o.progress * 1000))
-            bar.setFormat(f"{o.progress * 100:.1f} %".replace(".", ","))
-            self.table.setCellWidget(r, 5, bar)
-            self.table.setItem(r, _COL_PAID, self._paid_item(o))
-        self.table.blockSignals(False)
-        self.table.resizeColumnsToContents()
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+                self._farm_label(o.farm) if o.farm else "",  # sans ferme : rien à dire
+            ),
+            lambda o: ", ".join(names.get(r, r) for r in o.requires),
+        )
+        if self._selected_id not in {o.id for o in self._rows}:
+            self._selected_id = None
+        self.cards.select(self._selected_id)
         self._update_actions()
 
-    @staticmethod
-    def _paid_item(o: Objective) -> QTableWidgetItem:
-        """Checkbox "argent versé" — only on objectives with a money reward."""
-        item = QTableWidgetItem("")
-        if not o.reward.money:
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            return item
-        flags = Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsUserCheckable
-        if can_mark_paid(o):
-            flags |= Qt.ItemFlag.ItemIsEnabled
-            item.setToolTip("Coche quand l'argent a été ajouté sur ta ferme.")
-        else:
-            item.setToolTip("Disponible une fois l'objectif terminé.")
-        item.setFlags(flags)
-        paid = o.reward_state == RW_CLAIMED
-        item.setCheckState(Qt.CheckState.Checked if paid else Qt.CheckState.Unchecked)
-        return item
+    def _on_card_selected(self, objective_id: str) -> None:
+        self._selected_id = objective_id
+        self._update_actions()
 
-    def _on_table_item_changed(self, item: QTableWidgetItem) -> None:
-        if item.column() != _COL_PAID or item.row() >= len(self._rows):
+    def _on_paid_toggled(self, objective_id: str, paid: bool) -> None:
+        obj = next((o for o in self._rows if o.id == objective_id), None)
+        if obj is None:
             return
-        obj = self._rows[item.row()]
-        paid = item.checkState() == Qt.CheckState.Checked
         if set_reward_paid(obj, paid, self._career.settings.mode):
             self._reevaluate()  # may unlock the next step in "required rewards" mode
-            # Deferred: rebuilding the table inside its own itemChanged signal is unsafe.
+            # Deferred: rebuilding the cards inside their own signal is unsafe.
             QTimer.singleShot(0, self._persist_and_refresh)
 
     def _selected(self) -> Objective | None:
-        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
-        if not rows or rows[0].row() >= len(self._rows):
-            return None
-        return self._rows[rows[0].row()]
+        return next((o for o in self._rows if o.id == self._selected_id), None)
 
     def _update_actions(self) -> None:
         obj = self._selected()
@@ -625,12 +559,12 @@ class CareerPanel(QWidget):
     def _show_report(self, report: SyncReport) -> None:
         lines = [report.message]
         if report.ok:
-            lines += [f"✓ {d}" for d in report.detected]
+            lines += [f"• {d}" for d in report.detected]
             if report.newly_completed:
-                lines.append(f"🎉 {len(report.newly_completed)} objectif(s) terminé(s) !")
+                lines.append(f"{len(report.newly_completed)} objectif(s) terminé(s) !")
                 lines += [f"   • {o.name}" for o in report.newly_completed]
             if report.newly_unlocked:
-                lines.append(f"🔓 {len(report.newly_unlocked)} nouvel(s) objectif(s) débloqué(s) :")
+                lines.append(f"{len(report.newly_unlocked)} nouvel(s) objectif(s) débloqué(s) :")
                 lines += [f"   • {o.name}" for o in report.newly_unlocked]
         self.sync_label.setText("<br>".join(lines))
 
@@ -655,7 +589,7 @@ class CareerPanel(QWidget):
         self._on_sync_clicked()
         if pinned:
             self.sync_label.setText(
-                f"{self.sync_label.text()}<br>📌 {pinned} objectif(s) restent sur « {previous} »."
+                f"{self.sync_label.text()}<br>{pinned} objectif(s) restent sur « {previous} »."
             )
 
     def _on_mode_changed(self) -> None:

@@ -28,7 +28,7 @@ L'interface graphique `fsmods-gui` (du projet **fs25-profile-switcher**) permet 
     - **À ranger** : mods téléchargés via ModHub, déposés dans `_inbox`, ou mis à l'abri lors d'une activation. La pastille compte les zips en attente dans `_inbox`.
     - **Tous les mods** : la bibliothèque complète (recherche, filtres, détails, suppression, ajout à une collection).
     - **Collections** : une carte par collection (nombre de mods, profils qui l'utilisent) ; **Modifier** l'ouvre dans l'éditeur.
-  - **Carrière** : du profil choisi, en deux vues : **Tableau de bord** (chiffres clés, progression, récompenses, historique) et **Objectifs**. Changer de profil dans la liste reste sur la Carrière.
+  - **Carrière** : du profil choisi, en deux vues : **Tableau de bord** (chiffres clés, progression, récompenses, historique) et **Objectifs** (cartes regroupées par statut, avec progression, récompense et case **Versé**). Changer de profil dans la liste reste sur la Carrière.
   - **Diagnostic** : un tableau de six outils (Log FS25, Audit sauvegarde, Doublons, Routes AutoDrive, Tester les mods, Statistiques), chacun avec un état en une ligne ; un point orange signale ce qui mérite un coup d'œil. **Ouvrir** affiche l'outil, **Tous les outils** revient au tableau.
 - **Éditeur d'un profil** : ouvert depuis une carte de l'accueil ou en cliquant un profil (ou une collection) dans la liste latérale.
 - **Notifications** (en bas à droite) : les informations s'affichent sans bloquer et disparaissent seules. Après avoir retiré ou exclu un mod dans l'éditeur, **Annuler** remet le profil comme avant.

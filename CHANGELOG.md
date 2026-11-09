@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.0] - 2026-11-09
+
+Fin de la refonte de la Carrière.
+
+### Changed
+
+- **Objectifs en cartes** à la place du tableau de neuf colonnes, regroupées par statut (**En cours**, **À commencer**, **Non disponibles**, **Terminés**, **Verrouillés**). Chaque carte montre le nom, la catégorie et la difficulté, la récompense (argent, XP, badge), une barre de progression avec la valeur actuelle et la cible ; un objectif verrouillé indique ce qu'il requiert. Un clic sélectionne la carte (détail, Valider, Retirer).
+- La case **Versé** est sur la carte d'un objectif terminé qui rapporte de l'argent.
+- **Plus d'emojis dans la carrière** : statuts, modes, difficultés (Facile, Normal, Difficile, Expert, Légendaire), catégories, fiabilité des valeurs, résumé, niveau et rapport de synchronisation sont en texte ; les couleurs passent par des pastilles du thème.
+
+### Fixed
+
+- Le commutateur « Tableau de bord / Objectifs (N) » tronquait le libellé coché (passé en gras).
+
 ## [0.14.0] - 2026-11-09
 
 Cinquième étape de la refonte : Carrière, Bibliothèque et Diagnostic.

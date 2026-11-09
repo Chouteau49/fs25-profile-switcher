@@ -440,6 +440,12 @@ QWidget[role="card"] {{
     background: {t.surface}; border: 1px solid {t.border}; border-radius: 14px;
 }}
 QWidget[role="card"][hero="true"] {{ border-radius: 16px; }}
+QWidget[role="card"][selected="true"] {{ border: 2px solid {t.accent}; }}
+QLabel[role="reward"] {{
+    background: {t.amber_soft}; color: {t.amber_text}; border-radius: 10px;
+    padding: 2px 9px; font-size: 12px; font-weight: 600;
+}}
+QLabel[role="dot"][level="error"] {{ background: {t.red}; }}
 QPushButton[role="newcard"] {{
     background: transparent; border: 2px dashed {t.border_strong}; border-radius: 14px;
     color: {t.muted}; font-weight: 600;
