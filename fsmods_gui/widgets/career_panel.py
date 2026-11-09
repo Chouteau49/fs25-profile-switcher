@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import theme
+from ..career.campaigns import CAMPAIGNS
 from ..career.farmland_areas import is_dlc_map, map_farmland_areas
 from ..career.formatting import format_stat, format_value
 from ..career.history import CHART_SERIES, series
@@ -56,9 +57,10 @@ from ..career.stats import (
     owned_parcels,
     savegame_map_id,
 )
-from ..career.store import Career
+from ..career.store import Career, CareerError
 from ..career.sync import SyncReport, sync_career
 from ..career.templates import TEMPLATES, build_template
+from ..career.time_window import WINDOW_PRESETS, window_line
 from ..profiles.savegame_audit import list_savegames, parse_savegame
 from . import icons
 from .career_dialogs import (
@@ -155,6 +157,10 @@ class CareerPanel(QWidget):
             "ou à saisir pour une carte DLC (chiffrée)."
         )
         parcels_btn.clicked.connect(self._on_parcel_areas)
+        windows_btn = QPushButton("Lancer un défi…", self)
+        icons.bind(windows_btn, "plus")
+        windows_btn.setToolTip("Défi sur une fenêtre de temps de jeu, p. ex. 2 M€ en 24 h.")
+        windows_btn.clicked.connect(self._on_start_window)
 
         # Contexte de la carrière (sauvegarde, ferme, mode) dans une carte.
         context = QWidget(self)
@@ -210,6 +216,13 @@ class CareerPanel(QWidget):
         self.rewards_box = QGroupBox("Récompenses à attribuer", self)
         self.rewards_layout = QVBoxLayout(self.rewards_box)
 
+        # ---- défis en fenêtre de temps de jeu
+        self.windows_box = QGroupBox("Défis en fenêtre de temps", self)
+        self.windows_label = QLabel("", self.windows_box)
+        self.windows_label.setWordWrap(True)
+        windows_layout = QVBoxLayout(self.windows_box)
+        windows_layout.addWidget(self.windows_label)
+
         # ---- filters + table
         self.cat_filter = QComboBox(self)
         self.cat_filter.addItem("Toutes catégories", userData="")
@@ -254,6 +267,7 @@ class CareerPanel(QWidget):
         dash_tools = QHBoxLayout()
         dash_tools.addWidget(manual_btn)
         dash_tools.addWidget(parcels_btn)
+        dash_tools.addWidget(windows_btn)
         dash_tools.addStretch(1)
         dash_content = QWidget()
         dash = QVBoxLayout(dash_content)
@@ -263,6 +277,7 @@ class CareerPanel(QWidget):
         dash.addWidget(self.progress_bar)
         dash.addWidget(self.summary_label)
         dash.addWidget(self.level_label)
+        dash.addWidget(self.windows_box)
         dash.addWidget(self.rewards_box)
         dash.addWidget(self.history_box)
         dash.addLayout(dash_tools)
@@ -376,6 +391,7 @@ class CareerPanel(QWidget):
         self._fill_cards()
         self._fill_summary()
         self._fill_rewards()
+        self._fill_windows()
         self._fill_history()
         self._fill_table()
 
@@ -447,6 +463,11 @@ class CareerPanel(QWidget):
             f"Niveau {level} · {s.xp} XP ({into}/{need} avant le suivant) · badges : {badges}"
             + money
         )
+
+    def _fill_windows(self) -> None:
+        windows = self._career.windows
+        self.windows_box.setVisible(bool(windows))
+        self.windows_label.setText("<br>".join(window_line(w) for w in windows))
 
     def _fill_rewards(self) -> None:
         while self.rewards_layout.count():
@@ -608,21 +629,30 @@ class CareerPanel(QWidget):
     def _on_add_template(self) -> None:
         keys = list(TEMPLATES)
         names = [f"{TEMPLATES[k].name} — {len(TEMPLATES[k].specs)} objectifs" for k in keys]
+        names += [f"{c.name} — {c.summary}" for c in CAMPAIGNS]
         choice, ok = QInputDialog.getItem(
             self, "Modèle d'objectifs", "Quelle carrière souhaitez-vous ?", names, 0, False
         )
         if not ok:
             return
-        tpl = TEMPLATES[keys[names.index(choice)]]
+        index = names.index(choice)
         farm = self._ask_farm()
         if farm is None:
             return
-        added = self._career.add_objectives(build_template(tpl.key, farm))
+        if index < len(keys):
+            tpl = TEMPLATES[keys[index]]
+            added = self._career.add_objectives(build_template(tpl.key, farm))
+            total, description = len(tpl.specs), tpl.description
+        else:
+            campaign = CAMPAIGNS[index - len(keys)]
+            objectives = campaign.build(farm)
+            added = self._career.add_objectives(objectives)
+            total, description = len(objectives), campaign.description
         self._reevaluate()
         self._persist_and_refresh()
         QMessageBox.information(
-            self, "Modèle", f"{added} objectif(s) ajouté(s) ({tpl.description})"
-            + ("\nLes déjà présents ont été ignorés." if added < len(tpl.specs) else "")
+            self, "Modèle", f"{added} objectif(s) ajouté(s) ({description})"
+            + ("\nLes déjà présents ont été ignorés." if added < total else "")
         )
 
     def _ask_farm(self) -> str | None:
@@ -646,6 +676,20 @@ class CareerPanel(QWidget):
             return
         self._career.add_objectives([dlg.build()])
         self._reevaluate()
+        self._persist_and_refresh()
+
+    def _on_start_window(self) -> None:
+        names = [c.name for c in WINDOW_PRESETS]
+        choice, ok = QInputDialog.getItem(
+            self, "Lancer un défi", "Quel défi lancer maintenant ?", names, 0, False
+        )
+        if not ok:
+            return
+        try:
+            self._career.start_window(WINDOW_PRESETS[names.index(choice)])
+        except CareerError as exc:
+            QMessageBox.warning(self, "Défi", str(exc))
+            return
         self._persist_and_refresh()
 
     def _on_parcel_areas(self) -> None:

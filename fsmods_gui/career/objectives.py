@@ -164,15 +164,19 @@ def _leaf_progress(cur: float, operator: str, target: float, satisfied: bool) ->
     return 0.0
 
 
-def evaluate(cond: Condition, snapshot: StatsSnapshot) -> Evaluation:
+def evaluate(
+    cond: Condition, snapshot: StatsSnapshot, baseline: Mapping[str, float] | None = None
+) -> Evaluation:
     if cond.op == "leaf":
         cur = snapshot.value(cond.stat)
         if cur is None:
             return Evaluation(None, 0.0, None)
+        if baseline and cond.stat in baseline:
+            cur = max(0.0, cur - baseline[cond.stat])
         ok = _leaf_satisfied(cur, cond.operator, cond.target)
         return Evaluation(ok, _leaf_progress(cur, cond.operator, cond.target, ok), cur)
 
-    results = [evaluate(c, snapshot) for c in cond.children]
+    results = [evaluate(c, snapshot, baseline) for c in cond.children]
     if cond.op == "not":
         inner = results[0]
         if inner.satisfied is None:
@@ -257,6 +261,12 @@ class Objective:
     evaluated: bool = False
     reward_state: str = RW_NONE
     reward_claimed_at: str | None = None
+    # Best value ever read for a growing leaf (">=" / ">"): kept when the statistic drops.
+    record_value: float | None = None
+    record_at: str | None = None
+    # Cumulative statistics when the objective was activated (scenario started mid-save):
+    # the condition then measures the gain since that moment, not the save total.
+    baseline: dict[str, float] = field(default_factory=dict)
 
     @property
     def type(self) -> str:
@@ -311,6 +321,9 @@ class Objective:
             "createdAt": self.created_at,
             "completedAt": self.completed_at,
             "evaluated": self.evaluated,
+            "recordValue": self.record_value,
+            "recordAt": self.record_at,
+            "baseline": dict(self.baseline),
         }
 
     @classmethod
@@ -337,6 +350,13 @@ class Objective:
         reward_state = data.get("rewardState", RW_NONE)
         if reward_state not in (RW_NONE, RW_PENDING, RW_CLAIMED, RW_WAIVED):
             reward_state = RW_NONE
+        raw_base = data.get("baseline", {})
+        baseline = (
+            {str(k): float(v) for k, v in raw_base.items() if isinstance(v, int | float)}
+            if isinstance(raw_base, dict)
+            else {}
+        )
+        record = data.get("recordValue")
         return cls(
             id=oid,
             name=name,
@@ -359,6 +379,9 @@ class Objective:
             evaluated=bool(data.get("evaluated", False)),
             reward_state=reward_state,
             reward_claimed_at=data.get("rewardClaimedAt"),
+            record_value=float(record) if isinstance(record, int | float) else None,
+            record_at=data.get("recordAt"),
+            baseline=baseline,
         )
 
 
@@ -408,10 +431,11 @@ def evaluate_objectives(
             source = snapshot
             if obj.farm:
                 source = (farm_snapshots or {}).get(obj.farm) or StatsSnapshot()
-            ev = evaluate(obj.condition, source) if obj.condition else None
+            ev = evaluate(obj.condition, source, obj.baseline) if obj.condition else None
             if ev is not None:
                 obj.progress = ev.progress
                 obj.current_value = ev.current
+                _update_record(obj, ev.current)
 
             deps = [by_id[r] for r in obj.requires if r in by_id]
             if any(not _prerequisite_met(d, mode) for d in deps):
@@ -436,6 +460,15 @@ def evaluate_objectives(
         o for o in objectives if o.id in previously_locked and o.status != ST_LOCKED
     ]
     return result
+
+
+def _update_record(obj: Objective, current: float | None) -> None:
+    """Keep the best value ever read for a growing objective; a later drop does not erase it."""
+    if current is None or not obj.is_leaf or obj.operator not in (">=", ">"):
+        return
+    if obj.record_value is None or current > obj.record_value:
+        obj.record_value = current
+        obj.record_at = now_iso()
 
 
 def _mark_first_sight(obj: Objective, ev: Evaluation | None) -> None:

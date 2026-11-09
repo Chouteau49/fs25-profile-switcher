@@ -211,6 +211,10 @@ STAT_DEFS: dict[str, tuple[str, str, str]] = {
     "olive.oilSold": ("Huile vendue", "L", "olive"),
     "olive.revenue": ("Revenus oléicoles", "€", "olive"),
     "daysPlayed": ("Jours de jeu (in-game)", "j", "time"),
+    # Pisciculture : pas (encore) lue dans la sauvegarde, saisie avec « Statistique manuelle ».
+    "fish.salmon.farms": ("Élevages de saumon", "", "production"),
+    "fish.trout.farms": ("Élevages de truite", "", "production"),
+    "fish.farms": ("Élevages piscicoles", "", "production"),
 }
 
 # Raw <statistics> children of a farm -> (key, label, unit, category, scale).

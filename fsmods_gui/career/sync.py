@@ -8,6 +8,7 @@ from ..profiles.official_maps import official_map
 from ..profiles.savegame_audit import list_savegames, parse_savegame
 from .formatting import format_stat
 from .objectives import MODE_OFF, Objective
+from .regression import Regression
 from .stats import Q_NA, StatsSnapshot, apply_manual, extract_stats, savegame_map_id
 from .store import Career, CareerError
 
@@ -20,6 +21,13 @@ class SyncReport:
     detected: list[str] = field(default_factory=list)
     newly_completed: list[Objective] = field(default_factory=list)
     newly_unlocked: list[Objective] = field(default_factory=list)
+    regressions: list[Regression] = field(default_factory=list)
+    closed_windows: list[str] = field(default_factory=list)
+
+
+def _label_of(snapshot: StatsSnapshot, key: str) -> str:
+    stat = snapshot.get(key)
+    return stat.label if stat is not None and stat.label else key
 
 
 def _detected_lines(snapshot: StatsSnapshot) -> list[str]:
@@ -63,6 +71,7 @@ def sync_career(
             parcel_areas=career.settings.parcel_areas,
         )
 
+    previous = career.snapshot
     snapshot = read(career.settings.farm)
     tracked = snapshot.farm_id
     apply_manual(snapshot, career.settings.manual_for(tracked, tracked))
@@ -75,6 +84,8 @@ def sync_career(
         others[farm] = other
     career.snapshot = snapshot
     career.farm_snapshots = others
+    anomalies = career.log_reading(previous, snapshot)
+    closed_windows = [w.challenge.name for w in career.refresh_windows()]
     result = career.evaluate()
     career.record_history()
     career.save()
@@ -88,6 +99,14 @@ def sync_career(
         message += f" ⚠ La ferme {career.settings.farm} n'existe plus : ferme {tracked} utilisée."
     if unavailable:
         message += f" {unavailable} statistique(s) non disponible(s)."
+    if anomalies:
+        names = ", ".join(_label_of(snapshot, a.key) for a in anomalies)
+        message += (
+            f" Régression sur {len(anomalies)} statistique(s) cumulée(s) : {names}. "
+            "Une restauration de sauvegarde est peut-être en cause."
+        )
+    if closed_windows:
+        message += f" Défi(s) terminé(s) : {', '.join(closed_windows)}."
     missing = [p for p, ha in snapshot.parcels.items() if ha is None
                and p not in career.settings.parcel_areas.get(snapshot.map_id, {})]
     if missing and snapshot.value("land.area") is None:
@@ -103,6 +122,8 @@ def sync_career(
         detected=_detected_lines(snapshot),
         newly_completed=result.newly_completed,
         newly_unlocked=result.newly_unlocked,
+        regressions=anomalies,
+        closed_windows=closed_windows,
     )
 
 

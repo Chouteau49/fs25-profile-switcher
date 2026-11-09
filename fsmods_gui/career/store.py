@@ -12,10 +12,12 @@ Pure logic, no Qt.
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..profiles.atomic import atomic_write_text
+from .analysis_log import ANALYSIS_LIMIT, append_entry, record_analysis
 from .objectives import (
     MODE_OBJECTIVES,
     EvaluationResult,
@@ -23,7 +25,12 @@ from .objectives import (
     ObjectiveError,
     evaluate_objectives,
 )
+from .periods import baseline_for, checkpoint
+from .regression import Regression
+from .repeats import repeatable_objectives
 from .stats import StatsSnapshot
+from .templates import build_template
+from .time_window import ActiveWindow, WindowChallenge, open_window
 
 SCHEMA_VERSION = 1
 HISTORY_LIMIT = 500
@@ -43,6 +50,7 @@ HISTORY_KEYS = (
 CAREER_FILE = "career.json"
 OBJECTIVES_FILE = "objectives.json"
 STATISTICS_FILE = "statistics.json"
+WINDOWS_FILE = "challenges.json"
 
 
 class CareerError(ValueError):
@@ -128,6 +136,10 @@ class Career:
     # Snapshots of the other farms that at least one objective is bound to.
     farm_snapshots: dict[str, StatsSnapshot] = field(default_factory=dict)
     history: list[dict] = field(default_factory=list)
+    # One entry per savegame reading: what was read, what changed, anomalies.
+    analysis_log: list[dict] = field(default_factory=list)
+    # Défis à fenêtre de temps de jeu (2 M€ en 24 h…), suivis sur la ferme suivie.
+    windows: list[ActiveWindow] = field(default_factory=list)
 
     @classmethod
     def load(cls, directory: Path) -> Career:
@@ -156,6 +168,16 @@ class Career:
                 }
             history = data.get("history", [])
             career.history = [h for h in history if isinstance(h, dict)]
+            log = data.get("analysis_log", [])
+            career.analysis_log = [e for e in log if isinstance(e, dict)]
+
+        data = _read_json(directory / WINDOWS_FILE)
+        if isinstance(data, dict):
+            for raw in data.get("windows", []):
+                try:
+                    career.windows.append(ActiveWindow.from_dict(raw))
+                except (KeyError, TypeError, ValueError):
+                    continue  # a corrupt challenge is skipped, the others are kept
         return career
 
     def save(self) -> None:
@@ -171,7 +193,12 @@ class Career:
                 "snapshot": self.snapshot.to_dict(),
                 "farm_snapshots": {k: s.to_dict() for k, s in self.farm_snapshots.items()},
                 "history": self.history[-HISTORY_LIMIT:],
+                "analysis_log": self.analysis_log[-ANALYSIS_LIMIT:],
             },
+        )
+        _write_json(
+            self.directory / WINDOWS_FILE,
+            {"schema": SCHEMA_VERSION, "windows": [w.to_dict() for w in self.windows]},
         )
 
     def set_tracked_farm(self, farm: str) -> int:
@@ -235,6 +262,85 @@ class Career:
             if objective_id in obj.requires:
                 obj.requires.remove(objective_id)
         return len(self.objectives) != before
+
+    def start_scenario(
+        self, template_key: str, farm: str = "", *, from_activation: bool = False
+    ) -> tuple[int, list[str]]:
+        """Add a scenario. Returns ``(added, skipped)``: skipped names could not be baselined.
+
+        ``from_activation`` measures the cumulative statistics from now on: each objective
+        keeps the values read at this moment as its baseline. Without it, the scenario
+        counts the whole savegame history (the historical behaviour).
+        """
+        objectives = build_template(template_key, farm)
+        if not from_activation:
+            return self.add_objectives(objectives), []
+        source = self.snapshots_by_farm().get(farm or self.snapshot.farm_id)
+        if source is None or not source.stats:
+            raise CareerError("Synchronise la sauvegarde avant de démarrer depuis l'activation.")
+        skipped_ids: set[str] = set()
+        kept: list[Objective] = []
+        for obj in objectives:
+            if obj.condition is None:
+                kept.append(obj)
+                continue
+            baseline, missing = baseline_for(obj.condition, source)
+            if missing:
+                skipped_ids.add(obj.id)
+                continue
+            obj.baseline = baseline
+            kept.append(obj)
+        # Whatever requires a skipped objective cannot be reached either.
+        changed = True
+        while changed:
+            changed = False
+            for obj in list(kept):
+                if any(r in skipped_ids for r in obj.requires):
+                    kept.remove(obj)
+                    skipped_ids.add(obj.id)
+                    changed = True
+        names = [o.name for o in objectives if o.id in skipped_ids]
+        return self.add_objectives(kept), names
+
+    def start_window(self, challenge: WindowChallenge) -> ActiveWindow:
+        """Open a time-window challenge now, measured on the tracked farm's statistics."""
+        if not self.snapshot.stats:
+            raise CareerError("Synchronise la sauvegarde avant de lancer un défi.")
+        window = open_window(challenge, checkpoint(self.snapshot), f"win.{uuid.uuid4().hex[:8]}")
+        self.windows.append(window)
+        return window
+
+    def refresh_windows(self) -> list[ActiveWindow]:
+        """Re-evaluate the open challenges; returns those that just reached a final state."""
+        now = checkpoint(self.snapshot)
+        closed: list[ActiveWindow] = []
+        for window in self.windows:
+            was_final = window.final
+            window.refresh(now)
+            if window.final and not was_final:
+                closed.append(window)
+        return closed
+
+    def start_repeatable(self, farm: str = "") -> int:
+        """Add the repeatable catalogue (paliers). Returns how many paliers were added."""
+        return self.add_objectives(repeatable_objectives(farm))
+
+    def log_reading(self, previous: StatsSnapshot, current: StatsSnapshot) -> list[Regression]:
+        """Journalise une lecture et renvoie les régressions détectées.
+
+        Une comparaison n'a de sens qu'entre deux lectures de la même ferme d'une même
+        sauvegarde : changer de ferme ferait apparaître de fausses régressions.
+        """
+        comparable = (
+            previous
+            if previous.stats
+            and previous.farm_id == current.farm_id
+            and previous.savegame == current.savegame
+            else None
+        )
+        entry = record_analysis(comparable, current)
+        self.analysis_log = append_entry(self.analysis_log, entry)
+        return list(entry.anomalies)
 
     def record_history(self) -> None:
         values = {
