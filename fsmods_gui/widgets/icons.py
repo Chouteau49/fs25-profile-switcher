@@ -32,6 +32,7 @@ _SHAPES: dict[str, str] = {
     "settings": '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/>'
     '<circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',
+    "chevron-left": '<path d="m15 6-6 6 6 6"/>',
     "minus": '<path d="M5 12h14"/>',
     "search": '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
     "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4'

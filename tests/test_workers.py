@@ -26,8 +26,11 @@ def test_thread_stays_usable_after_its_worker_finished() -> None:
     assert app is not None
     worker = _Worker()  # like MainWindow: the caller keeps the worker alive
     thread = make_worker_thread(worker)
-    thread.start()
     loop = QEventLoop()
-    QTimer.singleShot(300, loop.quit)
+    # Attendre la fin réelle du thread (pas un délai fixe : 300 ms ne suffisaient
+    # pas quand la machine est chargée, le test échouait au hasard).
+    thread.finished.connect(loop.quit)
+    QTimer.singleShot(10_000, loop.quit)  # garde-fou
+    thread.start()
     loop.exec()
     assert thread.isRunning() is False

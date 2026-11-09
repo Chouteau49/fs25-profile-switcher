@@ -461,6 +461,18 @@ QWidget[role="banner"] {{
     background: {t.blue_soft}; border-radius: 12px;
 }}
 QWidget[role="banner"] QLabel {{ color: {t.blue_text}; }}
+QWidget[role="segmented"] {{
+    background: {t.surface2}; border: 1px solid {t.border}; border-radius: 10px;
+}}
+QPushButton[role="segment"] {{
+    background: transparent; border: 0; border-radius: 8px; padding: 6px 16px;
+    color: {t.muted}; font-weight: 500;
+}}
+QPushButton[role="segment"]:hover {{ color: {t.text}; }}
+QPushButton[role="segment"]:checked {{
+    background: {t.surface}; color: {t.text}; font-weight: 600;
+}}
+QLabel[role="dot"][level="info"] {{ background: {t.border_strong}; }}
 QWidget[role="notice"] {{ background: {t.blue_soft}; border-radius: 12px; }}
 QWidget[role="notice"][level="error"] {{ background: {t.red_soft}; }}
 QWidget[role="notice"] QLabel {{ color: {t.blue_text}; }}

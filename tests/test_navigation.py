@@ -13,7 +13,7 @@ NOW = datetime(2026, 11, 9, 12, 0, 0)
 def test_every_former_tab_has_a_place():
     keys = {f.key for f in nav.all_features()}
     assert keys == {
-        "home", "editor", "newmods", "career", "log", "audit",
+        "home", "editor", "newmods", "allmods", "collections", "career", "log", "audit",
         "duplicates", "autodrive", "testrunner", "stats",
     }
 

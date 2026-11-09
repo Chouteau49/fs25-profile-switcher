@@ -134,3 +134,48 @@ def test_no_screen_forces_a_wide_window(window):
             if len(section.features) > 1:
                 window._show_feature_tab(feature.key)
             assert window.minimumSizeHint().width() <= 1280, (section.key, feature.key)
+
+
+def test_diagnostic_opens_on_hub_then_tool_then_back(window):
+    window._show_section(nav.SECTION_DIAGNOSTIC)
+    assert window._diag_stack.currentIndex() == 0
+    assert window._visible_feature() is None
+    assert window.diagnostic_hub.status_labels[nav.FEATURE_LOG].text() == (
+        "Aucun log de partie trouvé"
+    )
+    window.diagnostic_hub.open_requested.emit(nav.FEATURE_DUPLICATES)
+    assert window._diag_stack.currentIndex() == 1
+    assert window._visible_feature() == nav.FEATURE_DUPLICATES
+    window._show_section(nav.SECTION_DIAGNOSTIC)
+    assert window._diag_stack.currentIndex() == 0
+
+
+def test_library_has_three_views(window):
+    window._show_feature_tab(nav.FEATURE_ALLMODS)
+    assert window._visible_feature() == nav.FEATURE_ALLMODS
+    window._show_feature_tab(nav.FEATURE_COLLECTIONS)
+    assert window._visible_feature() == nav.FEATURE_COLLECTIONS
+
+
+def test_collections_overview_opens_collection_editor(window):
+    col = window.state.new_collection("Base FS25")
+    window._refresh_collections_ui()
+    window._show_feature_tab(nav.FEATURE_COLLECTIONS)
+    panel = window._feature_panels[nav.FEATURE_COLLECTIONS]
+    panel.open_requested.emit(col.slug)
+    assert window.sidebar.current() == nav.SECTION_PROFILES
+    assert window.editor.current_target().slug == col.slug
+
+
+def test_career_view_choice_survives_rebuild(window):
+    from fsmods_gui.widgets.career_panel import CareerPanel
+
+    window._show_section(nav.SECTION_CAREER)
+    panel = window._feature_panels[nav.FEATURE_CAREER]
+    if not isinstance(panel, CareerPanel):
+        pytest.skip("pas de carrière dans cet environnement de test")
+    panel.show_view(1)
+    window._show_section(nav.SECTION_CAREER)  # reconstruit le panneau
+    rebuilt = window._feature_panels[nav.FEATURE_CAREER]
+    assert rebuilt.views.currentIndex() == 1
+    rebuilt.show_view(0)

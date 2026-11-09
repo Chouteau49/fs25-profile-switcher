@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.14.0] - 2026-11-09
+
+Cinquième étape de la refonte : Carrière, Bibliothèque et Diagnostic.
+
+### Added
+
+- **Diagnostic en cartes** : l'espace s'ouvre sur un tableau des six outils (Log FS25, Audit de sauvegarde, Doublons, Routes AutoDrive, Tester les mods, Statistiques), chacun avec sa description et un état en une ligne (« Dernière partie : 2 erreurs », « 4 groupes (9 fichiers) », « 300 mods sur 812 ne servent à aucun profil »…). « Ouvrir » affiche l'outil ; « Tous les outils » revient au tableau.
+- **Bibliothèque en trois vues** : **À ranger**, **Tous les mods** (la bibliothèque complète : recherche, filtres, détails, suppression, ajout à une collection) et **Collections** (une carte par collection avec son nombre de mods et les profils qui l'utilisent, **Modifier**, **Nouvelle collection**).
+
+### Changed
+
+- **Carrière en deux vues** : **Tableau de bord** (chiffres clés, progression, récompenses à verser, historique, saisie manuelle et surfaces des parcelles) et **Objectifs (N)** (filtres, tableau, modèles et objectifs perso). La vue choisie est retrouvée en revenant sur la carrière.
+- Carrière : sauvegarde, ferme suivie et mode regroupés dans une carte ; **Synchroniser** à côté du titre.
+- Chiffres clés de la carrière : nom lisible même sans sauvegarde associée (au lieu de `netWorth`, `money`…), valeur en grand, fiabilité indiquée par un point de couleur et un mot (Automatique, Calculée, Manuelle, Non disponible) au lieu d'emojis.
+
+### Fixed
+
+- Test des workers instable : il attendait 300 ms au lieu d'attendre la fin réelle du thread, et échouait au hasard sur une machine chargée.
+
 ## [0.13.0] - 2026-11-09
 
 Quatrième étape de la refonte : la page d'un profil.

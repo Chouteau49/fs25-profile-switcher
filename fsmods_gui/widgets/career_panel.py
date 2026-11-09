@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QButtonGroup,
     QComboBox,
     QGridLayout,
     QGroupBox,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -50,6 +52,7 @@ from ..career.stats import (
     CATEGORIES_FR,
     Q_NA,
     QUALITY_LABELS_FR,
+    STAT_DEFS,
     FarmInfo,
     apply_manual,
     list_farms,
@@ -87,6 +90,10 @@ _QUALITY_ICON = {"auto": "🟢", "calc": "🟠", "manual": "🔵", "na": "🔴"}
 
 
 class CareerPanel(QWidget):
+    #: Vue choisie (0 tableau de bord, 1 objectifs) : le panneau est reconstruit
+    #: à chaque affichage, on retrouve la même vue.
+    _last_view = 0
+
     # Emitted after the career files were rewritten (so the config backup can run).
     changed = Signal()
 
@@ -153,23 +160,32 @@ class CareerPanel(QWidget):
         )
         parcels_btn.clicked.connect(self._on_parcel_areas)
 
-        head1 = QHBoxLayout()
-        head1.addWidget(QLabel("Sauvegarde :", self))
-        head1.addWidget(self.savegame_combo, 2)
-        head1.addWidget(QLabel("Ferme suivie :", self))
-        head1.addWidget(self.farm_combo, 2)
-        head1.addWidget(QLabel("Mode :", self))
-        head1.addWidget(self.mode_combo, 2)
-        head1.addWidget(sync_btn)
-        head2 = QHBoxLayout()
-        head2.addWidget(template_btn)
-        head2.addWidget(custom_btn)
-        head2.addWidget(manual_btn)
-        head2.addWidget(parcels_btn)
-        head2.addStretch(1)
+        # Contexte de la carrière (sauvegarde, ferme, mode) dans une carte.
+        context = QWidget(self)
+        context.setProperty("role", "card")
+        context.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        head1 = QHBoxLayout(context)
+        head1.setContentsMargins(14, 10, 14, 10)
+        head1.setSpacing(14)
+        for caption, combo in (
+            ("Sauvegarde", self.savegame_combo),
+            ("Ferme suivie", self.farm_combo),
+            ("Mode", self.mode_combo),
+        ):
+            field = QVBoxLayout()
+            field.setSpacing(3)
+            caption_label = QLabel(caption, context)
+            caption_label.setProperty("role", "muted")
+            field.addWidget(caption_label)
+            field.addWidget(combo)
+            head1.addLayout(field, 2)
 
-        title = QLabel(f"Carrière — {profile_name}", self)
-        title.setProperty("role", "title")
+        title = QLabel(f"Carrière · {profile_name}", self)
+        title.setProperty("role", "page-title")
+        title_row = QHBoxLayout()
+        title_row.addWidget(title, 1)
+        sync_btn.setMinimumHeight(36)
+        title_row.addWidget(sync_btn)
         self.sync_label = QLabel("", self)
         self.sync_label.setWordWrap(True)
 
@@ -253,30 +269,75 @@ class CareerPanel(QWidget):
         self.detail_label = QLabel("", self)
         self.detail_label.setWordWrap(True)
 
-        content = QWidget()
-        col = QVBoxLayout(content)
-        col.addWidget(title)
-        col.addLayout(head1)
-        col.addLayout(head2)
-        col.addWidget(self.sync_label)
-        col.addWidget(self.cards_box)
-        col.addWidget(self.progress_bar)
-        col.addWidget(self.summary_label)
-        col.addWidget(self.level_label)
-        col.addWidget(self.history_box)
-        col.addWidget(self.rewards_box)
-        col.addLayout(filters)
-        col.addWidget(self.table, 1)
-        col.addWidget(self.detail_label)
-        col.addLayout(actions)
-        self.table.setMinimumHeight(260)
+        # ---- vue « Tableau de bord » (défilante)
+        dash_tools = QHBoxLayout()
+        dash_tools.addWidget(manual_btn)
+        dash_tools.addWidget(parcels_btn)
+        dash_tools.addStretch(1)
+        dash_content = QWidget()
+        dash = QVBoxLayout(dash_content)
+        dash.setContentsMargins(0, 0, 8, 0)
+        dash.setSpacing(12)
+        dash.addWidget(self.cards_box)
+        dash.addWidget(self.progress_bar)
+        dash.addWidget(self.summary_label)
+        dash.addWidget(self.level_label)
+        dash.addWidget(self.rewards_box)
+        dash.addWidget(self.history_box)
+        dash.addLayout(dash_tools)
+        dash.addStretch(1)
+        dash_scroll = QScrollArea(self)
+        dash_scroll.setWidgetResizable(True)
+        dash_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        dash_scroll.setWidget(dash_content)
+        self.history_chart.setMinimumHeight(200)
 
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(content)
+        # ---- vue « Objectifs »
+        obj_page = QWidget(self)
+        obj = QVBoxLayout(obj_page)
+        obj.setContentsMargins(0, 0, 0, 0)
+        obj.setSpacing(10)
+        filters.addWidget(template_btn)
+        filters.addWidget(custom_btn)
+        obj.addLayout(filters)
+        obj.addWidget(self.table, 1)
+        obj.addWidget(self.detail_label)
+        obj.addLayout(actions)
+
+        self.views = QStackedWidget(self)
+        self.views.addWidget(dash_scroll)  # 0 : tableau de bord
+        self.views.addWidget(obj_page)  # 1 : objectifs
+
+        # Commutateur segmenté entre les deux vues.
+        self.dash_btn = QPushButton("Tableau de bord", self)
+        self.obj_btn = QPushButton(f"Objectifs ({len(career.objectives)})", self)
+        switch = QWidget(self)
+        switch.setProperty("role", "segmented")
+        switch.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        sw = QHBoxLayout(switch)
+        sw.setContentsMargins(3, 3, 3, 3)
+        sw.setSpacing(3)
+        self._view_group = QButtonGroup(self)
+        for i, btn in enumerate((self.dash_btn, self.obj_btn)):
+            btn.setCheckable(True)
+            btn.setProperty("role", "segment")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._view_group.addButton(btn, i)
+            sw.addWidget(btn)
+        self._view_group.idClicked.connect(self.show_view)
+        switch_row = QHBoxLayout()
+        switch_row.addWidget(switch)
+        switch_row.addStretch(1)
+
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll)
+        outer.setContentsMargins(4, 4, 4, 0)
+        outer.setSpacing(12)
+        outer.addLayout(title_row)
+        outer.addWidget(context)
+        outer.addWidget(self.sync_label)
+        outer.addLayout(switch_row)
+        outer.addWidget(self.views, 1)
+        self.show_view(CareerPanel._last_view)
 
         if report is not None:
             self._show_report(report)
@@ -285,6 +346,13 @@ class CareerPanel(QWidget):
         self._refresh()
 
     # ------------------------------------------------------------- refresh
+
+    def show_view(self, index: int) -> None:
+        """Afficher le tableau de bord (0) ou la liste des objectifs (1)."""
+        index = 1 if index == 1 else 0
+        CareerPanel._last_view = index
+        self.views.setCurrentIndex(index)
+        (self.obj_btn if index == 1 else self.dash_btn).setChecked(True)
 
     def _reload_farms(self) -> None:
         """(Re)read the farms of the linked savegame into the picker."""
@@ -341,20 +409,28 @@ class CareerPanel(QWidget):
         snapshot = self._career.snapshot
         farm = snapshot.farm_name or (f"ferme {snapshot.farm_id}" if snapshot.farm_id else "")
         self.cards_box.setTitle(f"Tableau de bord — {farm}" if farm else "Tableau de bord")
-        for i, (key, icon) in enumerate(_CARDS):
+        t = theme.current()
+        dot_color = {
+            "auto": t.accent, "calc": t.amber, "manual": t.blue, "na": t.red,
+        }
+        for i, (key, _icon) in enumerate(_CARDS):
             stat = snapshot.get(key)
-            label = stat.label if stat else key
+            # Sans sauvegarde lue, on affiche quand même le nom lisible, jamais la clé.
+            label = stat.label if stat else STAT_DEFS.get(key, (key,))[0]
             value = format_stat(stat) if stat else "—"
             quality = stat.quality if stat else Q_NA
+            quality_text = QUALITY_LABELS_FR[quality].split(" ", 1)[-1]
             card = QLabel(
-                f"<span style='font-size:11px;color:{theme.current().muted}'>{icon} {label}</span><br>"
-                f"<b style='font-size:16px'>{value}</b> {_QUALITY_ICON[quality]}",
+                f"<span style='font-size:12px;color:{t.muted}'>{label}</span><br>"
+                f"<span style='font-size:20px;font-weight:700'>{value}</span><br>"
+                f"<span style='font-size:11px;color:{t.muted}'>"
+                f"<span style='color:{dot_color[quality]}'>●</span> {quality_text}</span>",
                 self.cards_box,
             )
             card.setToolTip(
                 f"{QUALITY_LABELS_FR[quality]}" + (f"\n{stat.note}" if stat and stat.note else "")
             )
-            card.setMinimumHeight(56)
+            card.setMinimumHeight(78)
             card.setProperty("role", "card")
             self.cards_grid.addWidget(card, i // 3, i % 3)
 

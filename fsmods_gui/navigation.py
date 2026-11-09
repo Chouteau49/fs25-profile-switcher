@@ -22,6 +22,8 @@ SECTION_DIAGNOSTIC = "diagnostic"
 FEATURE_HOME = "home"
 FEATURE_EDITOR = "editor"
 FEATURE_NEWMODS = "newmods"
+FEATURE_ALLMODS = "allmods"
+FEATURE_COLLECTIONS = "collections"
 FEATURE_CAREER = "career"
 FEATURE_LOG = "log"
 FEATURE_AUDIT = "audit"
@@ -68,8 +70,12 @@ SECTIONS: tuple[Section, ...] = (
         SECTION_LIBRARY,
         "Bibliothèque",
         "library",
-        (Feature(FEATURE_NEWMODS, "À ranger", "download"),),
-        "Mods téléchargés ou mis à l'abri qui attendent d'être rangés.",
+        (
+            Feature(FEATURE_NEWMODS, "À ranger", "download"),
+            Feature(FEATURE_ALLMODS, "Tous les mods", "library"),
+            Feature(FEATURE_COLLECTIONS, "Collections", "collection"),
+        ),
+        "Tous tes mods, les collections, et les mods qui attendent d'être rangés.",
     ),
     Section(
         SECTION_CAREER,

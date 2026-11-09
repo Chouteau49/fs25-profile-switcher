@@ -45,6 +45,7 @@ from .state import AppState
 from .widgets import icons
 from .widgets.editor_panel import EditorPanel
 from .widgets.home_page import HomePage
+from .widgets.overview import DiagnosticHub
 from .widgets.shell import SessionBar, SideNav, section_header
 from .widgets.sync_dialog import (
     ADD_IGNORE,
@@ -130,7 +131,11 @@ class MainWindow(QMainWindow):
         self._TAB_AUTODRIVE = nav.FEATURE_AUTODRIVE
         self._TAB_NEWMODS = nav.FEATURE_NEWMODS
         self._TAB_TESTRUNNER = nav.FEATURE_TESTRUNNER
+        self._TAB_ALLMODS = nav.FEATURE_ALLMODS
+        self._TAB_COLLECTIONS = nav.FEATURE_COLLECTIONS
         self._tab_builders = {
+            self._TAB_ALLMODS: self._build_all_mods_panel,
+            self._TAB_COLLECTIONS: self._build_collections_panel,
             self._TAB_CAREER: self._build_career_panel,
             self._TAB_DUP: self._build_duplicates_panel,
             self._TAB_STATS: self._build_stats_panel,
@@ -174,7 +179,25 @@ class MainWindow(QMainWindow):
                 page = QWidget(self)
                 page_layout = QVBoxLayout(page)
                 page_layout.setContentsMargins(8, 8, 8, 0)
+                if section.key == nav.SECTION_DIAGNOSTIC:
+                    # Diagnostic s'ouvre sur un tableau de cartes ; un outil ouvert
+                    # garde ses voisins en sous-onglets et un retour au tableau.
+                    back = QPushButton("Tous les outils", page)
+                    icons.bind(back, "chevron-left")
+                    back.setProperty("variant", "ghost")
+                    back.clicked.connect(lambda: self._show_section(nav.SECTION_DIAGNOSTIC))
+                    back_row = QHBoxLayout()
+                    back_row.addWidget(back)
+                    back_row.addStretch(1)
+                    page_layout.addLayout(back_row)
                 page_layout.addWidget(tabs)
+                if section.key == nav.SECTION_DIAGNOSTIC:
+                    self.diagnostic_hub = DiagnosticHub(self)
+                    self.diagnostic_hub.open_requested.connect(self._show_feature_tab)
+                    self._diag_stack = QStackedWidget(self)
+                    self._diag_stack.addWidget(self.diagnostic_hub)  # 0 : cartes
+                    self._diag_stack.addWidget(page)  # 1 : outil ouvert
+                    page = self._diag_stack
             self._section_pages[section.key] = self.pages.addWidget(page)
         self._apply_tab_icons()
 
@@ -542,6 +565,8 @@ class MainWindow(QMainWindow):
         if current is None:
             return None
         section = nav.section(current)
+        if current == nav.SECTION_DIAGNOSTIC and self._diag_stack.currentIndex() == 0:
+            return None  # tableau des outils : rien à reconstruire
         tabs = self._section_tabs.get(current)
         if tabs is not None:
             return section.features[max(0, tabs.currentIndex())].key
@@ -558,7 +583,48 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(self._section_pages[key])
         if key == nav.SECTION_HOME:
             self._refresh_home()
+        if key == nav.SECTION_DIAGNOSTIC:
+            self._diag_stack.setCurrentIndex(0)
+            self._refresh_diagnostic_hub()
         self._on_view_changed()
+
+    def _refresh_diagnostic_hub(self) -> None:
+        """États des cartes du Diagnostic (données déjà en mémoire + log.txt)."""
+        from . import diagnostics as diag
+        from .profiles.log_analyzer import analyze_log, log_path_for, summarize
+        from .profiles.stats import compute_stats
+
+        hub = self.diagnostic_hub
+        catalog = self.state.catalog
+        if catalog is None:
+            hub.set_status(nav.FEATURE_DUPLICATES, diag.duplicates_status(None))
+            hub.set_status(nav.FEATURE_STATS, diag.stats_status(None, 0))
+        else:
+            st = compute_stats(catalog, self.state.profiles, self.state.collections)
+            hub.set_status(
+                nav.FEATURE_DUPLICATES,
+                diag.duplicates_status(st.duplicate_groups, st.duplicate_files),
+            )
+            hub.set_status(
+                nav.FEATURE_STATS, diag.stats_status(st.total_mods, len(st.orphan_files))
+            )
+        try:
+            log_file = log_path_for(self.state.game.mods_dir)
+        except KeyError:
+            log_file = None
+        if log_file is not None and log_file.is_file():
+            summary = summarize(analyze_log(log_file))
+            hub.set_status(nav.FEATURE_LOG, diag.log_status(summary.errors, summary.warnings))
+        else:
+            hub.set_status(nav.FEATURE_LOG, diag.log_status(None, None))
+        prof = self.state.current_profile
+        hub.set_status(nav.FEATURE_AUDIT, diag.audit_status(prof.name if prof else None))
+        hub.set_status(
+            nav.FEATURE_AUTODRIVE, diag.generic_status("Sauvegarde et réinstallation par profil")
+        )
+        hub.set_status(
+            nav.FEATURE_TESTRUNNER, diag.generic_status("Lance FS25 sur chaque mod, à la demande")
+        )
 
     def _show_feature_tab(self, key: str) -> None:
         """Afficher une vue (reconstruite même si elle est déjà visible)."""
@@ -569,9 +635,47 @@ class MainWindow(QMainWindow):
             tabs.blockSignals(True)
             tabs.setCurrentIndex(index)
             tabs.blockSignals(False)
-        self._show_section(section.key)
+        self.sidebar.set_current(section.key)
+        self.pages.setCurrentIndex(self._section_pages[section.key])
+        if section.key == nav.SECTION_DIAGNOSTIC:
+            self._diag_stack.setCurrentIndex(1)
+        self._on_view_changed()
 
     # ---- builders: each returns the panel to show in its tab
+
+    def _build_all_mods_panel(self) -> QWidget:
+        from .widgets.library_table import LibraryTable
+
+        table = LibraryTable(self)
+        table.set_catalog(self.state.catalog)
+        table.delete_requested.connect(self._on_delete_mods)
+        table.add_to_collection.connect(
+            lambda entries: self._add_mods_to_collection([e.filename for e in entries])
+        )
+        table.entry_double_clicked.connect(self._show_mod_details)
+        return table
+
+    def _show_mod_details(self, entry) -> None:
+        from .widgets.mod_detail import ModDetailDialog
+
+        ModDetailDialog(entry, self).exec()
+
+    def _build_collections_panel(self) -> QWidget:
+        from .widgets.overview import CollectionsOverview
+
+        panel = CollectionsOverview(self)
+        rows = []
+        for col in self.state.collections:
+            users = [p.name for p in self.state.profiles if col.slug in p.collections]
+            rows.append((col.slug, col.name, len(col.mods), users))
+        panel.set_collections(rows)
+        panel.open_requested.connect(self._open_collection)
+        panel.new_requested.connect(self._on_new_collection)
+        return panel
+
+    def _open_collection(self, slug: str) -> None:
+        self._select_collection_slug(slug)
+        self._show_section(nav.SECTION_PROFILES)
 
     def _build_duplicates_panel(self) -> QWidget:
         if self.state.catalog is None:
