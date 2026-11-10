@@ -50,6 +50,8 @@ L'interface graphique `fsmods-gui` (du projet **fs25-profile-switcher**) permet 
 - **Journal de l'appli** (Outils, bas de la barre latérale) : ouvre `%LOCALAPPDATA%\fs25-profile-switcher\logs`. `fsmods-gui.log` garde les erreurs internes, `crash.log` les plantages durs. C'est le fichier à regarder (ou à envoyer) quand l'appli se comporte mal.
 - **Synchronisation auto** : à la fermeture de FS25, un dialogue liste les mods ajoutés (téléchargés via ModHub en jeu) ou retirés, et te demande comment les ranger.
 
+- **Importer une partie** (section Profils, bouton 📥 ou Ctrl+K) : cherche les zips de partie dans Téléchargements et dans `_inbox`, ou tu peux en choisir un ailleurs. La partie est copiée dans un nouveau dossier `savegameN` du jeu (jamais écrasé), et un profil est créé avec sa carte et ses mods. La fenêtre indique la carte trouvée et les mods absents de la bibliothèque. FS25 doit être fermé.
+
 ## Bibliothèque centrale
 
 Toute ta collection de `.zip` vit dans un dossier configurable, **séparé du dépôt** et **séparé du dossier `mods/` du jeu**. Layout :

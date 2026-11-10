@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.20.0] - 2026-11-10
+
+### Added
+
+- **Importer une partie** : une partie téléchargée (zip de sauvegarde FS25, dans Téléchargements ou ailleurs) devient une nouvelle partie du jeu (`savegameN`, le numéro suivant) et un profil avec sa carte et les mods trouvés dans la bibliothèque. La carrière est liée à cette partie. Rien d'existant n'est écrasé ; l'import est refusé si FS25 tourne. Bouton « Importer une partie » dans la section Profils et entrée dans la palette Ctrl+K.
+
 ## [0.19.0] - 2026-11-09
 
 ### Added

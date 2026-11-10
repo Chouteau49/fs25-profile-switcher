@@ -31,6 +31,7 @@ ACTIONS: tuple[tuple[str, str, str], ...] = (
     ("action:rescan", "Rescanner la bibliothèque", "Relire les zips du dossier mods"),
     ("action:export", "Exporter la configuration", "Profils, collections, carrières (ZIP)"),
     ("action:import", "Importer une configuration", "Depuis un export ZIP"),
+    ("action:import_save", "Importer une partie", "Partie téléchargée (zip de sauvegarde)"),
     ("action:log", "Ouvrir le journal de l'appli", "Erreurs internes et plantages"),
     ("action:theme", "Changer de thème", "Clair, sombre ou comme Windows"),
 )

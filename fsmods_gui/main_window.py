@@ -217,6 +217,7 @@ class MainWindow(QMainWindow):
                 "Profils",
                 [
                     ("plus", "Nouveau profil", self._on_new_profile),
+                    ("download", "Importer une partie", self._on_import_save),
                     ("copy", "Dupliquer le profil", self._on_duplicate_profile),
                     ("trash", "Supprimer le profil", self._on_delete_profile),
                 ],
@@ -841,6 +842,7 @@ class MainWindow(QMainWindow):
                 "rescan": self._on_rescan,
                 "export": self._on_export_config,
                 "import": self._on_import_config,
+                "import_save": self._on_import_save,
                 "log": self._on_open_log_dir,
                 "theme": lambda: self._show_section(nav.SECTION_SETTINGS),
             }
@@ -1375,6 +1377,72 @@ class MainWindow(QMainWindow):
         self._request_backup()
         self._on_home_open(profile.slug)
         self.notify(f"Profil « {profile.name} » créé.")
+
+    def _on_import_save(self) -> None:
+        """Turn a downloaded save into a new savegame of the game, and a profile for it."""
+        from .career.store import Career, CareerError
+        from .profiles.activator import game_process_running
+        from .profiles.savegame_import import (
+            SaveImportError,
+            extract_save,
+            next_savegame_dir,
+            plan_profile,
+            scan_save_archives,
+            unique_profile_name,
+        )
+        from .widgets.save_import_dialog import SaveImportDialog
+
+        game = self.state.game
+        if game_process_running(self.state.game_key):
+            self.notify("Ferme Farming Simulator avant d'importer une partie.", error=True)
+            return
+        if game.library_mods_dir is None or game.library_profiles_dir is None:
+            self.notify("Bibliothèque non configurée.", error=True)
+            return
+        user_dir = game.mods_dir.parent
+        library = {p.stem.lower(): p.name for p in game.library_mods_dir.glob("*.zip")}
+        archives = scan_save_archives(game.new_mod_source_dirs())
+        dialog = SaveImportDialog(
+            archives,
+            lambda archive: plan_profile(archive, library),
+            {p.name for p in self.state.profiles},
+            self,
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted or dialog.chosen is None:
+            return
+        archive = dialog.chosen
+        plan = plan_profile(archive, library)
+        name = unique_profile_name(dialog.selected_name(), {p.name for p in self.state.profiles})
+        target = next_savegame_dir(user_dir)
+        try:
+            extract_save(archive, target)
+        except SaveImportError as exc:
+            self.notify(f"Import impossible : {exc}", error=True)
+            return
+        try:
+            profile = self.state.new_profile(name)
+        except (FileExistsError, ValueError) as exc:
+            self.notify(f"Profil non créé : {exc}", error=True)
+            return
+        profile.map_mod = plan.map_mod
+        profile.official_map = plan.official_map
+        profile.mods = list(plan.mods)
+        profile.save()
+        try:
+            if game.library_careers_dir is None:
+                raise CareerError("bibliothèque non configurée")
+            career = Career.load(game.library_careers_dir / profile.slug)
+            career.settings.savegame = target.name
+            career.save()
+        except CareerError as exc:
+            log.warning("Carrière non liée à %s : %s", target.name, exc)
+        self._refresh_profiles_ui()
+        self._request_backup()
+        self._on_home_open(profile.slug)
+        message = f"Partie « {name} » importée dans {target.name}."
+        if plan.missing:
+            message += f" {len(plan.missing)} mod(s) absent(s) de la bibliothèque (liste dans la fenêtre d'import)."
+        self.notify(message)
 
     def _create_career(self, profile, template_key: str) -> None:
         from .career.store import Career, CareerError
