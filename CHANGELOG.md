@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.20.1] - 2026-11-10
+
+### Fixed
+
+- **Importer une partie** : la partie était copiée dans `savegame21`, hors des 20 emplacements que FS25 affiche : elle n'apparaissait donc pas dans le jeu. L'import prend maintenant le premier emplacement libre entre 1 et 20 (un emplacement vide ne contient que `steam_autocloud.vdf`), conserve ce fichier, et refuse s'il n'y a plus de place au lieu de créer un dossier invisible. Une partie déjà présente n'est jamais écrasée.
+
 ## [0.20.0] - 2026-11-10
 
 ### Added
