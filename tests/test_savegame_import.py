@@ -74,16 +74,47 @@ def test_scan_finds_saves_only_in_the_given_folders(tmp_path: Path) -> None:
     assert [a.path.name for a in found] == ["partie.zip"]
 
 
-def test_next_savegame_dir_takes_the_number_after_the_highest(tmp_path: Path) -> None:
-    for name in ("savegame1", "savegame3", "savegame20", "savegameBackup"):
+def test_next_savegame_dir_takes_the_first_free_slot_in_the_game_range(tmp_path: Path) -> None:
+    # FS25 only shows slots 1 to 20; an empty slot holds just steam_autocloud.vdf.
+    for name in ("savegame1", "savegame2", "savegame3", "savegameBackup"):
         (tmp_path / name).mkdir()
+        (tmp_path / name / "careerSavegame.xml").write_text("<x/>", encoding="utf-8")
+    empty = tmp_path / "savegame4"
+    empty.mkdir()
+    (empty / "steam_autocloud.vdf").write_text("", encoding="utf-8")
     target = next_savegame_dir(tmp_path)
-    assert target == tmp_path / "savegame21"
-    assert not target.exists()  # only the name is chosen, nothing is created
+    assert target == tmp_path / "savegame4"  # an empty slot is reused
+    assert (empty / "steam_autocloud.vdf").is_file()  # nothing is created or removed yet
+
+
+def test_next_savegame_dir_never_goes_past_slot_20(tmp_path: Path) -> None:
+    for n in range(1, 21):
+        d = tmp_path / f"savegame{n}"
+        d.mkdir()
+        (d / "careerSavegame.xml").write_text("<x/>", encoding="utf-8")
+    with pytest.raises(SaveImportError):
+        next_savegame_dir(tmp_path)
+
+
+def test_a_folder_with_other_files_is_not_an_empty_slot(tmp_path: Path) -> None:
+    d = tmp_path / "savegame1"
+    d.mkdir()
+    (d / "vehicles.xml").write_text("<x/>", encoding="utf-8")  # leftovers: keep them
+    assert next_savegame_dir(tmp_path) == tmp_path / "savegame2"
 
 
 def test_next_savegame_dir_on_a_fresh_install(tmp_path: Path) -> None:
     assert next_savegame_dir(tmp_path) == tmp_path / "savegame1"
+
+
+def test_extract_into_an_empty_slot_keeps_its_steam_file(tmp_path: Path) -> None:
+    zip_path = _zip(tmp_path / "p.zip", {"careerSavegame.xml": CAREER})
+    target = tmp_path / "savegame4"
+    target.mkdir()
+    (target / "steam_autocloud.vdf").write_text("cloud", encoding="utf-8")
+    extract_save(read_save_archive(zip_path), target)
+    assert (target / "careerSavegame.xml").is_file()
+    assert (target / "steam_autocloud.vdf").read_text(encoding="utf-8") == "cloud"
 
 
 def test_extract_writes_the_save_into_a_new_folder(tmp_path: Path) -> None:

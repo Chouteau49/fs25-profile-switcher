@@ -22,6 +22,10 @@ from .official_maps import official_map
 CAREER_FILE = "careerSavegame.xml"
 DEFAULT_NAME = "Partie importée"
 _SAVEGAME_DIR = re.compile(r"^savegame(\d+)$")
+# FS25 only shows these slots in its menu: a save outside them would be invisible.
+GAME_SLOTS = range(1, 21)
+# What an empty slot holds: Steam's cloud file, nothing else.
+_EMPTY_SLOT_FILES = frozenset({"steam_autocloud.vdf"})
 
 
 class SaveImportError(ValueError):
@@ -103,15 +107,27 @@ def scan_save_archives(folders: list[Path]) -> list[SaveArchive]:
     return found
 
 
+def _is_free_slot(folder: Path) -> bool:
+    """True when the slot is absent, or holds nothing but the Steam cloud file."""
+    if not folder.exists():
+        return True
+    if not folder.is_dir():
+        return False
+    return all(child.name in _EMPTY_SLOT_FILES and child.is_file() for child in folder.iterdir())
+
+
 def next_savegame_dir(user_dir: Path) -> Path:
-    """``savegameN`` after the highest existing number (nothing is created)."""
-    numbers = [0]
-    if user_dir.is_dir():
-        for child in user_dir.iterdir():
-            match = _SAVEGAME_DIR.match(child.name)
-            if match and child.is_dir():
-                numbers.append(int(match.group(1)))
-    return user_dir / f"savegame{max(numbers) + 1}"
+    """The first free slot of the game (``savegame1`` to ``savegame20``); nothing is created.
+
+    A slot holding another save, or any leftover file, is never reused.
+    """
+    for number in GAME_SLOTS:
+        folder = user_dir / f"savegame{number}"
+        if _is_free_slot(folder):
+            return folder
+    raise SaveImportError(
+        "Les 20 emplacements de partie de FS25 sont utilisés : supprime-en un dans le jeu."
+    )
 
 
 def extract_save(archive: SaveArchive, target: Path) -> None:
@@ -120,8 +136,9 @@ def extract_save(archive: SaveArchive, target: Path) -> None:
     Written into a temporary sibling first, then renamed: on any failure nothing is
     left behind. Paths that would leave the folder refuse the whole import.
     """
-    if target.exists():
+    if target.exists() and not _is_free_slot(target):
         raise SaveImportError(f"Le dossier {target.name} existe déjà : rien n'a été écrit.")
+    keep_cloud_file = target.is_dir() and (target / "steam_autocloud.vdf").is_file()
     staging = target.parent / f".{target.name}.importing"
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
@@ -140,6 +157,9 @@ def extract_save(archive: SaveArchive, target: Path) -> None:
                     shutil.copyfileobj(src, out)
         if not (staging / CAREER_FILE).is_file():
             raise SaveImportError("careerSavegame.xml absent de l'extraction.")
+        if keep_cloud_file:
+            shutil.copy2(target / "steam_autocloud.vdf", staging / "steam_autocloud.vdf")
+            shutil.rmtree(target)  # only the empty slot's cloud file was in it, copied above
         os.replace(staging, target)
     except SaveImportError:
         shutil.rmtree(staging, ignore_errors=True)

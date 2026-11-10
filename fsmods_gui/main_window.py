@@ -1413,8 +1413,8 @@ class MainWindow(QMainWindow):
         archive = dialog.chosen
         plan = plan_profile(archive, library)
         name = unique_profile_name(dialog.selected_name(), {p.name for p in self.state.profiles})
-        target = next_savegame_dir(user_dir)
         try:
+            target = next_savegame_dir(user_dir)
             extract_save(archive, target)
         except SaveImportError as exc:
             self.notify(f"Import impossible : {exc}", error=True)
